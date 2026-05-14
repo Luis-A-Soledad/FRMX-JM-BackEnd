@@ -726,12 +726,12 @@ def fetch_calificaciones_maquinista(
     """
     query = (
         "SELECT * FROM ey_data_ai_dev.gold.fn_calificaciones_maquinista("
-        ":p_jefe_maquinista, :p_fecha_inicio, :p_fecha_fin)"
+        ":p_fecha_inicio, :p_fecha_fin, :p_jefe_maquinista)"
     )
     parameters = [
-        {"name": "p_jefe_maquinista", "value": jefe_maquinista, "type": "STRING"},
         {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
         {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
+        {"name": "p_jefe_maquinista", "value": jefe_maquinista, "type": "STRING"},
     ]
     columns, rows = _execute_statement(query, parameters=parameters)
     return _rows_to_dicts(columns, rows)
