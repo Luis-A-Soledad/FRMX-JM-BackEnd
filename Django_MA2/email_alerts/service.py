@@ -715,21 +715,23 @@ def fetch_alertas_since(since_timestamp: str | None = None) -> list[dict[str, An
 # ---------------------------------------------------------------------------
 
 def fetch_calificaciones_maquinista(
+    jefe_maquinista: str,
     fecha_inicio: str,
     fecha_fin: str,
 ) -> list[dict[str, Any]]:
-    """Llama a fn_calificaciones_maquinista(p_fecha_inicio, p_fecha_fin).
+    """Llama a fn_calificaciones_maquinista(p_jefe_maquinista, p_fecha_inicio, p_fecha_fin).
 
     Retorna lista de dicts con: id_maquinista, nombre_maquinista,
     Score_Promedio, Alertas_Acumuladas, Frecuencia_Evento, Alerta_Comun.
     """
     query = (
         "SELECT * FROM ey_data_ai_dev.gold.fn_calificaciones_maquinista("
-        ":p_fecha_inicio, :p_fecha_fin)"
+        ":p_fecha_inicio, :p_fecha_fin, :p_jefe_maquinista)"
     )
     parameters = [
         {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
         {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
+        {"name": "p_jefe_maquinista", "value": jefe_maquinista, "type": "STRING"},
     ]
     columns, rows = _execute_statement(query, parameters=parameters)
     return _rows_to_dicts(columns, rows)
@@ -742,7 +744,7 @@ def fetch_frecuencia_alertas_maquinista(
 ) -> list[dict[str, Any]]:
     """Llama a fn_frecuencia_alertas_maquinista(p_id_maquinista, p_fecha_inicio, p_fecha_fin).
 
-    Retorna lista de dicts con: Alerta, Frecuencia.
+    Retorna lista de dicts con: Prioridad, Alerta, Frecuencia.
     """
     query = (
         "SELECT * FROM ey_data_ai_dev.gold.fn_frecuencia_alertas_maquinista("

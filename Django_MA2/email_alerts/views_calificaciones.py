@@ -57,10 +57,14 @@ class CalificacionesMaquinistaView(APIView):
         return _calificaciones_authenticators()
 
     def get(self, request: Request) -> Response:
+        jefe_maquinista = request.query_params.get("jefe_maquinista")
         fecha_inicio = request.query_params.get("fecha_inicio")
         fecha_fin = request.query_params.get("fecha_fin")
 
         errors: dict = {}
+        if not jefe_maquinista:
+            errors["jefe_maquinista"] = "Parámetro requerido."
+
         if not fecha_inicio:
             errors["fecha_inicio"] = "Parámetro requerido."
         elif err := _validate_date(fecha_inicio, "fecha_inicio"):
@@ -74,12 +78,12 @@ class CalificacionesMaquinistaView(APIView):
         if errors:
             return _error_response(
                 "PARAMETROS_INVALIDOS",
-                "Parámetros de fecha inválidos o faltantes.",
+                "Parámetros inválidos o faltantes.",
                 details=errors,
             )
 
         try:
-            rows = fetch_calificaciones_maquinista(fecha_inicio, fecha_fin)
+            rows = fetch_calificaciones_maquinista(jefe_maquinista, fecha_inicio, fecha_fin)
             return Response({"data": rows}, status=status.HTTP_200_OK)
         except RuntimeError:
             logger.exception("Error consultando Databricks para calificaciones")
