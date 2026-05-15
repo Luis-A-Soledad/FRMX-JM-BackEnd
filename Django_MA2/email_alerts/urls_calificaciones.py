@@ -4,6 +4,7 @@ from django.urls import path
 
 from .views_calificaciones import (
     CalificacionesMaquinistaView,
+    ComparativaMaquinistasView,
     FrecuenciaAlertasMaquinistaView,
     ResumenSemanalMaquinistaView,
     ViajesMaquinistaView,
@@ -16,4 +17,5 @@ urlpatterns = [
     path("resumen-semanal/", ResumenSemanalMaquinistaView.as_view(), name="resumen_semanal_maquinista"),
     path("viajes/", ViajesMaquinistaView.as_view(), name="viajes_maquinista"),
     path("to/", ToMaquinistaView.as_view(), name="to_maquinista"),
+    path("comparativa/", ComparativaMaquinistasView.as_view(), name="comparativa_maquinistas"),
 ]
