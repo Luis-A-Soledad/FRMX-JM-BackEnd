@@ -6,6 +6,7 @@ import logging
 import threading
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import jwt
 import requests as http_requests
@@ -23,6 +24,53 @@ _CACHE_TTL = 3600  # 1 hour
 
 _jwk_client: jwt.PyJWKClient | None = None
 _jwk_client_lock = threading.Lock()
+
+
+def _normalize_issuer(value: str) -> str:
+    """Normalize issuer URLs for tolerant string comparison."""
+    return value.strip().rstrip("/").lower()
+
+
+def _allowed_issuers(tenant_id: str, discovery_issuer: str) -> set[str]:
+    """Build accepted issuer values for Entra v2 and v1 tokens."""
+    tid = tenant_id.strip()
+    v2_issuer = discovery_issuer.strip()
+    v1_issuer = f"https://sts.windows.net/{tid}/"
+
+    candidates = {v2_issuer, v1_issuer}
+    return {_normalize_issuer(c) for c in candidates if c}
+
+
+def _is_allowed_issuer(token_issuer: str, tenant_id: str, discovery_issuer: str) -> bool:
+    """Validate issuer for the configured tenant across Entra v1/v2 variants."""
+    normalized_token_issuer = _normalize_issuer(token_issuer)
+    if not normalized_token_issuer:
+        return False
+
+    # Fast path for known exact issuers.
+    if normalized_token_issuer in _allowed_issuers(tenant_id, discovery_issuer):
+        return True
+
+    # Fallback: accept equivalent Microsoft issuer variants for the same tenant.
+    parsed = urlparse(normalized_token_issuer)
+    if parsed.scheme != "https":
+        return False
+
+    discovery_host = urlparse(_normalize_issuer(discovery_issuer)).hostname or ""
+    allowed_hosts = {
+        discovery_host,
+        "sts.windows.net",
+        "login.windows.net",
+        "login.microsoftonline.com",
+    }
+
+    if parsed.hostname not in allowed_hosts:
+        return False
+
+    # Path must start with /<tenant_id> and may optionally include /v2.0
+    tid = tenant_id.strip().lower()
+    token_path = parsed.path.rstrip("/")
+    return token_path in {f"/{tid}", f"/{tid}/v2.0"}
 
 
 def _get_discovery(tenant_id: str, discovery_url: str | None) -> dict[str, str]:
@@ -80,8 +128,14 @@ class EntraBearerAuthentication(BaseAuthentication):
       authenticator try, e.g. ``JWTAuthentication``).
     - Token is structurally a JWT **but** the kid is not in the Entra JWKS
       → ``None`` (not an Entra token; fallback).
-    - Token IS an Entra JWT but validation fails (expired, bad audience,
-      wrong issuer, invalid signature) → ``AuthenticationFailed`` (HTTP 401).
+        - Token IS an Entra JWT but validation fails (expired, bad audience,
+            wrong issuer, invalid signature) → ``AuthenticationFailed`` (HTTP 401).
+
+        Issuer compatibility:
+        - Accepts Entra v2 issuer from discovery
+            (``https://login.microsoftonline.com/<tenant>/v2.0``).
+        - Also accepts Entra v1 issuer for the same tenant
+            (``https://sts.windows.net/<tenant>/``).
     """
 
     def authenticate(self, request):
@@ -110,6 +164,7 @@ class EntraBearerAuthentication(BaseAuthentication):
 
         jwks_uri = discovery["jwks_uri"]
         issuer = discovery["issuer"]
+        accepted_issuers = _allowed_issuers(tenant_id, issuer)
 
         # 2. Resolve signing key
         jwk_client = _get_jwk_client(jwks_uri)
@@ -129,8 +184,14 @@ class EntraBearerAuthentication(BaseAuthentication):
                 key=signing_key.key,
                 algorithms=["RS256"],
                 audience=audience,
-                issuer=issuer,
+                options={"verify_iss": False},
             )
+
+            token_issuer_raw = str(claims.get("iss", ""))
+            if not _is_allowed_issuer(token_issuer_raw, tenant_id, issuer):
+                raise jwt.InvalidIssuerError(
+                    f"Issuer '{token_issuer_raw}' is not accepted for tenant '{tenant_id}'."
+                )
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed("Entra token has expired.")
         except jwt.InvalidAudienceError:

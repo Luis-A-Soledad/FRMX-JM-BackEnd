@@ -40,7 +40,7 @@ class IsAllowedSSORole(BasePermission):
             return True
 
         # Authenticated: role must be in the allowlist regardless of mode.
-        user_context = build_user_context(request.user)
+        user_context = build_user_context(request.user, request=request)
         allowed_roles: frozenset[str] = getattr(
             settings, "ENTRA_SSO_ALLOWED_ROLES", frozenset()
         )

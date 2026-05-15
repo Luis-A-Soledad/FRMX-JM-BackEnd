@@ -129,6 +129,31 @@ ENTRA_SSO_ALLOWED_ROLES: frozenset[str] = frozenset(
     r.strip().lower() for r in _raw_allowed.split(",") if r.strip()
 )
 
+# ── Temporary SSO role bypass for local/dev debugging ───────────────
+# Allows overriding UNKNOWN role via request header (X-Bypass-Role by default)
+# while keeping Entra authentication enabled.
+SSO_ROLE_BYPASS_ENABLED = os.getenv("SSO_ROLE_BYPASS_ENABLED", "0").strip() == "1"
+SSO_ROLE_BYPASS_HEADER = os.getenv("SSO_ROLE_BYPASS_HEADER", "X-Bypass-Role").strip()
+
+# Optional map for temporary role assignment of authenticated UNKNOWN users.
+# Format: "camila.vera@cl.ey.com:CCO,entra_oid_username:JEFE_MAQUINISTAS"
+_raw_role_bypass_map = os.getenv("SSO_ROLE_BYPASS_MAP", "").strip()
+SSO_ROLE_BYPASS_MAP: dict[str, str] = {}
+if _raw_role_bypass_map:
+    for _entry in _raw_role_bypass_map.split(","):
+        _entry = _entry.strip()
+        if ":" in _entry:
+            _id_part, _role_part = _entry.split(":", 1)
+            SSO_ROLE_BYPASS_MAP[_id_part.strip().lower()] = _role_part.strip().upper()
+
+# Guardrail: role bypass is never allowed in production
+if SSO_ROLE_BYPASS_ENABLED and not DEBUG:
+    from django.core.exceptions import ImproperlyConfigured as _IC
+    raise _IC(
+        "SSO_ROLE_BYPASS_ENABLED=1 is not allowed when DEBUG=False. "
+        "This mechanism is for local/dev debugging only."
+    )
+
 # ── Guardrail: ENFORCE=1 sin autenticador Entra es configuración inválida ──
 if ENTRA_SSO_ENFORCE and not ENTRA_AUTH_ENABLED:
     _settings_logger = logging.getLogger("core.settings")
@@ -143,35 +168,6 @@ if ENTRA_SSO_ENFORCE and not ENTRA_AUTH_ENABLED:
     else:
         from django.core.exceptions import ImproperlyConfigured
         raise ImproperlyConfigured(_msg)
-
-# ── Email Bypass (dev/staging only) ───────────────────────────────────
-EMAIL_BYPASS_ENABLED: bool = os.getenv("EMAIL_BYPASS_ENABLED", "0").strip() == "1"
-
-# Parse EMAIL_BYPASS_MAP from env: "ana@frmx.com:CCO,luis@frmx.com:JEFE_MAQUINISTAS"
-_raw_bypass_map = os.getenv("EMAIL_BYPASS_MAP", "").strip()
-EMAIL_BYPASS_MAP: dict[str, str] = {}
-if _raw_bypass_map:
-    for _entry in _raw_bypass_map.split(","):
-        _entry = _entry.strip()
-        if ":" in _entry:
-            _email_part, _role_part = _entry.split(":", 1)
-            EMAIL_BYPASS_MAP[_email_part.strip().lower()] = _role_part.strip().upper()
-
-# Guardrail: bypass cannot run in production
-if EMAIL_BYPASS_ENABLED and not DEBUG:
-    from django.core.exceptions import ImproperlyConfigured as _IC
-    raise _IC(
-        "EMAIL_BYPASS_ENABLED=1 is not allowed when DEBUG=False.  "
-        "This mechanism is for development/staging only."
-    )
-
-# Guardrail: both bypass and Entra enabled is unusual — warn
-if EMAIL_BYPASS_ENABLED and ENTRA_AUTH_ENABLED:
-    _settings_logger = logging.getLogger("core.settings")
-    _settings_logger.warning(
-        "⚠️  EMAIL_BYPASS_ENABLED=1 and ENTRA_AUTH_ENABLED=1 are both set.  "
-        "Bypass will be tried before Entra authentication."
-    )
 
 _auth_classes = []
 if ENTRA_AUTH_ENABLED:

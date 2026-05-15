@@ -96,7 +96,6 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .authentication.bypass import EmailBypassAuthentication
 from .authentication.entra import EntraBearerAuthentication
 from .permissions import IsAllowedSSORole
 from .serializers import ChatRequestSerializer, ChatResponseSerializer
@@ -144,17 +143,16 @@ def _entra_first_authenticators():
     """Build authenticator list at request time so settings overrides work.
 
     Order:
-    1. EmailBypassAuthentication (if EMAIL_BYPASS_ENABLED) — dev/staging only.
-    2. EntraBearerAuthentication (if ENTRA_AUTH_ENABLED).
-    3. JWTAuthentication — always present as fallback.
+    1. EntraBearerAuthentication (if ENTRA_AUTH_ENABLED).
+    2. JWTAuthentication — only when ENTRA_AUTH_ENABLED=False (dev mode).
+       Excluded when Entra is active to prevent SimpleJWT from rejecting
+       valid Entra Bearer tokens with 'token_not_valid'.
     """
     authenticators = []
-    if getattr(django_settings, "EMAIL_BYPASS_ENABLED", False):
-        authenticators.append(EmailBypassAuthentication())
-
     if getattr(django_settings, "ENTRA_AUTH_ENABLED", False):
         authenticators.append(EntraBearerAuthentication())
-    authenticators.append(JWTAuthentication())
+    else:
+        authenticators.append(JWTAuthentication())
     return authenticators
 
 
@@ -206,7 +204,7 @@ class ChatView(APIView):
         session_id = get_or_create_session(incoming_session_id)
 
         # Contexto del usuario derivado server-side (ignora 'rol' del cliente)
-        user_context = build_user_context(request.user)
+        user_context = build_user_context(request.user, request=request)
 
         try:
             result = run_agent(
@@ -319,7 +317,7 @@ class WhoAmIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        user_context = build_user_context(request.user)
+        user_context = build_user_context(request.user, request=request)
         return Response(
             {
                 "status": "AUTHENTICATED",

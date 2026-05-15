@@ -237,6 +237,46 @@ class CustomAllowlistTests(_SSOEnforceFixtures):
 
 
 # ══════════════════════════════════════════════════════════════════════
+#  Temporary role bypass (dev/debug only)
+# ══════════════════════════════════════════════════════════════════════
+
+@override_settings(
+    DEBUG=True,
+    ENTRA_SSO_ENFORCE=True,
+    SSO_ROLE_BYPASS_ENABLED=True,
+    SSO_ROLE_BYPASS_HEADER="X-Bypass-Role",
+    SSO_ROLE_BYPASS_MAP={"unknown_enforce": "CCO"},
+)
+@patch("api.views.delete_session", side_effect=_mock_delete_session)
+@patch("api.views.run_agent", side_effect=_mock_run_agent)
+@patch("api.views.get_or_create_session", side_effect=_mock_get_or_create)
+class TemporaryRoleBypassTests(_SSOEnforceFixtures):
+    """UNKNOWN SSO users can be temporarily mapped with a debug header."""
+
+    URL = "/api/chat/"
+
+    def test_unknown_with_valid_bypass_role_is_allowed(self, *_mocks):
+        self.client.force_authenticate(user=self.user_unknown)
+        resp = self.client.post(
+            self.URL,
+            {"question": "hola"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["role"], "CCO")
+
+    @override_settings(SSO_ROLE_BYPASS_MAP={"unknown_enforce": "OPERADOR"})
+    def test_unknown_with_disallowed_bypass_role_is_denied(self, *_mocks):
+        self.client.force_authenticate(user=self.user_unknown)
+        resp = self.client.post(
+            self.URL,
+            {"question": "hola"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 403)
+
+
+# ══════════════════════════════════════════════════════════════════════
 #  Guardrail: ENFORCE=1 + AUTH_ENABLED=0
 # ══════════════════════════════════════════════════════════════════════
 

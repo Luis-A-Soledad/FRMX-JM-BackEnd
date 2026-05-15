@@ -104,3 +104,57 @@ class WhoAmISSOTests(TestCase):
         # User has no UserProfile → role falls back to UNKNOWN
         self.assertEqual(data["role"], "UNKNOWN")
         self.assertEqual(data["scopes"], {"fleets": [], "regions": []})
+
+    @patch("api.authentication.entra._get_discovery", return_value=FAKE_DISCOVERY)
+    @patch("api.authentication.entra._get_jwk_client")
+    def test_whoami_valid_v1_issuer_token_returns_200(self, mock_jwk_factory, mock_disc):
+        """v1 Entra issuer (sts.windows.net) must be accepted for same tenant."""
+        mock_key = MagicMock()
+        mock_key.key = "fake-rsa-key"
+        mock_client = MagicMock()
+        mock_client.get_signing_key_from_jwt.return_value = mock_key
+        mock_jwk_factory.return_value = mock_client
+
+        v1_claims = {
+            **FAKE_CLAIMS,
+            "iss": "https://sts.windows.net/adb53b4f-b05f-4dcb-a2e1-9111380568c3/",
+            "ver": "1.0",
+        }
+
+        with patch("api.authentication.entra.jwt.decode") as mock_decode:
+            mock_decode.return_value = v1_claims
+            resp = self.client.get(
+                self.URL,
+                HTTP_AUTHORIZATION="Bearer eyJ.valid.v1token",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["iss"], v1_claims["iss"])
+
+    @patch("api.authentication.entra._get_discovery", return_value=FAKE_DISCOVERY)
+    @patch("api.authentication.entra._get_jwk_client")
+    def test_whoami_valid_v2_issuer_with_trailing_slash_returns_200(self, mock_jwk_factory, mock_disc):
+        """v2 issuer with trailing slash must be accepted."""
+        mock_key = MagicMock()
+        mock_key.key = "fake-rsa-key"
+        mock_client = MagicMock()
+        mock_client.get_signing_key_from_jwt.return_value = mock_key
+        mock_jwk_factory.return_value = mock_client
+
+        v2_claims_slash = {
+            **FAKE_CLAIMS,
+            "iss": "https://login.microsoftonline.com/adb53b4f-b05f-4dcb-a2e1-9111380568c3/v2.0/",
+            "ver": "2.0",
+        }
+
+        with patch("api.authentication.entra.jwt.decode") as mock_decode:
+            mock_decode.return_value = v2_claims_slash
+            resp = self.client.get(
+                self.URL,
+                HTTP_AUTHORIZATION="Bearer eyJ.valid.v2slash",
+            )
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["iss"], v2_claims_slash["iss"])
