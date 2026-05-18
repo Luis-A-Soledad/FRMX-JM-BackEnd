@@ -89,6 +89,7 @@
 
 import os
 
+import requests as http_requests
 from django.conf import settings as django_settings
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
@@ -98,7 +99,11 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .authentication.entra import EntraBearerAuthentication
 from .permissions import IsAllowedSSORole
-from .serializers import ChatRequestSerializer, ChatResponseSerializer
+from .serializers import (
+    ChatRequestSerializer,
+    ChatResponseSerializer,
+    SSOTokenExchangeSerializer,
+)
 from accounts.utils import build_user_context
 
 # if os.getenv("MOCK_AGENT", "").strip().lower() in ("1", "true", "yes"):
@@ -310,6 +315,98 @@ class SSOConfigView(APIView):
         })
 
 
+def _build_entra_token_url() -> str:
+    """Resolve Entra OAuth2 token endpoint from ENTRA_AUTHORITY or tenant id."""
+    authority = (getattr(django_settings, "ENTRA_AUTHORITY", "") or "").strip()
+    tenant_id = (getattr(django_settings, "ENTRA_TENANT_ID", "") or "").strip()
+
+    if authority:
+        normalized = authority.rstrip("/")
+        # If authority already points to oauth2 path, use it as-is.
+        if "/oauth2" in normalized.lower():
+            return normalized
+        return f"{normalized}/oauth2/v2.0/token"
+
+    if tenant_id:
+        return f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+
+    return ""
+
+
+class SSOTokenExchangeView(APIView):
+    """POST /api/sso/token/ — Exchanges authorization code + PKCE for tokens."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        serializer = SSOTokenExchangeSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        token_url = _build_entra_token_url()
+        if not token_url:
+            return Response(
+                {"detail": "SSO token endpoint is not configured."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        client_id = (
+            serializer.validated_data.get("client_id")
+            or getattr(django_settings, "ENTRA_FRONTEND_CLIENT_ID", "")
+        )
+        if not client_id:
+            return Response(
+                {"detail": "ENTRA_FRONTEND_CLIENT_ID is not configured."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        scope = (
+            serializer.validated_data.get("scope")
+            or getattr(django_settings, "ENTRA_SSO_SCOPES", "")
+            or getattr(django_settings, "ENTRA_API_SCOPE", "")
+        )
+
+        payload = {
+            "grant_type": "authorization_code",
+            "client_id": client_id,
+            "code": serializer.validated_data["code"],
+            "redirect_uri": serializer.validated_data["redirect_uri"],
+            "code_verifier": serializer.validated_data["code_verifier"],
+        }
+        if scope:
+            payload["scope"] = scope
+
+        try:
+            upstream = http_requests.post(
+                token_url,
+                data=payload,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=15,
+            )
+        except http_requests.RequestException:
+            return Response(
+                {"detail": "Unable to reach Entra token endpoint."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        try:
+            body = upstream.json()
+        except ValueError:
+            body = {"raw": upstream.text}
+
+        if upstream.status_code >= 400:
+            return Response(
+                {
+                    "detail": "Entra token exchange failed.",
+                    "entra_error": body,
+                },
+                status=upstream.status_code,
+            )
+
+        return Response(body, status=status.HTTP_200_OK)
+
+
 class WhoAmIView(APIView):
     """GET /api/sso/whoami/ — Evidence endpoint for Entra SSO."""
 
@@ -321,14 +418,17 @@ class WhoAmIView(APIView):
         return Response(
             {
                 "status": "AUTHENTICATED",
-                "username": request.user.get_username(),
-                "email": getattr(request.user, "email", None),
-                "oid": request.auth.get("oid"),
-                "tid": request.auth.get("tid"),
-                "aud": request.auth.get("aud"),
-                "iss": request.auth.get("iss"),
-                "scp": request.auth.get("scp"),
+                "oid": user_context.get("oid") or request.auth.get("oid"),
+                "email": user_context.get("email"),
+                "name": user_context.get("name"),
+                "scp": user_context.get("scp", []),
+                "capabilities": user_context.get("capabilities", ["VIEW_BASIC"]),
+                "allowed": user_context.get("allowed", False),
                 "role": user_context["role"],
                 "scopes": user_context["scopes"],
             }
         )
+
+
+class MeView(WhoAmIView):
+    """GET /api/me/ alias for /api/sso/whoami/."""

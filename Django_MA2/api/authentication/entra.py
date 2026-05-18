@@ -213,7 +213,9 @@ class EntraBearerAuthentication(BaseAuthentication):
                 or claims.get("upn")
                 or claims.get("email")
             ),
+            "name": claims.get("name") or claims.get("given_name") or "",
             "scp": claims.get("scp"),
+            "roles": claims.get("roles") or [],
             "aud": claims.get("aud"),
             "iss": claims.get("iss"),
         }

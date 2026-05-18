@@ -62,3 +62,15 @@ class ChatResponseSerializer(serializers.Serializer):
         default=_default_scopes,
         help_text='Alcances del usuario: {"fleets": [], "regions": []}',
     )
+
+
+class SSOTokenExchangeSerializer(serializers.Serializer):
+    """Input payload for authorization_code + PKCE exchange against Entra."""
+
+    code = serializers.CharField(required=True, max_length=4096)
+    code_verifier = serializers.CharField(required=True, max_length=4096)
+    redirect_uri = serializers.URLField(required=True, max_length=2048)
+    # Optional override. If omitted, backend uses ENTRA_FRONTEND_CLIENT_ID.
+    client_id = serializers.CharField(required=False, allow_blank=False, max_length=255)
+    # Optional override. If omitted, backend uses ENTRA_SSO_SCOPES / ENTRA_API_SCOPE.
+    scope = serializers.CharField(required=False, allow_blank=False, max_length=2048)

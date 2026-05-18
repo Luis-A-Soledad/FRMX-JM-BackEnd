@@ -7,7 +7,7 @@ from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import BasePermission
 
 from accounts.utils import build_user_context
-from role_config import DENIED_SSO_MESSAGE
+from role_config import DENIED_SSO_MESSAGE, normalize_role_name
 
 
 class IsAllowedSSORole(BasePermission):
@@ -41,7 +41,32 @@ class IsAllowedSSORole(BasePermission):
 
         # Authenticated: role must be in the allowlist regardless of mode.
         user_context = build_user_context(request.user, request=request)
+        if not user_context.get("allowed", False):
+            self.message = "Token does not include required API scope."
+            return False
+
         allowed_roles: frozenset[str] = getattr(
             settings, "ENTRA_SSO_ALLOWED_ROLES", frozenset()
         )
-        return user_context["role"].lower() in allowed_roles
+        allowed_roles_norm = {str(role).strip().lower() for role in allowed_roles}
+        role_norm = normalize_role_name(str(user_context.get("role", ""))).lower()
+        return role_norm in allowed_roles_norm
+
+
+class HasRequiredScope(BasePermission):
+    """Allow only requests that include the configured required scope."""
+
+    message = "Token does not include required API scope."
+
+    def has_permission(self, request, view) -> bool:
+        auth_claims = getattr(request, "auth", None)
+        if not isinstance(auth_claims, dict):
+            return False
+
+        required_scope = str(getattr(settings, "ENTRA_REQUIRED_SCOPE", "Api.access")).strip()
+        if not required_scope:
+            return True
+
+        scp_raw = str(auth_claims.get("scp") or "").strip()
+        scopes = scp_raw.split() if scp_raw else []
+        return required_scope.lower() in {scope.lower() for scope in scopes}

@@ -94,8 +94,16 @@ TEMPLATES = [
     },
 ]
 
-# CORS — permite llamadas desde cualquier origen en desarrollo
-CORS_ALLOW_ALL_ORIGINS = DEBUG
+# CORS — abierto solo en desarrollo; en prod usar allowlist explicita.
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+    CORS_ALLOWED_ORIGINS = []
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
+    _cors_allowed_raw = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
+    CORS_ALLOWED_ORIGINS = [
+        origin.strip() for origin in _cors_allowed_raw.split(",") if origin.strip()
+    ]
 
 STATIC_URL = "/static/"
 
@@ -116,6 +124,7 @@ ENTRA_API_SCOPE = os.getenv("ENTRA_API_SCOPE", "").strip()
 ENTRA_SSO_SCOPES = os.getenv("ENTRA_SSO_SCOPES", "").strip()
 ENTRA_AUTHORITY = os.getenv("ENTRA_AUTHORITY", "").strip()
 ENTRA_EXPECTED_AUDIENCE = os.getenv("ENTRA_EXPECTED_AUDIENCE", "").strip()
+ENTRA_REQUIRED_SCOPE = os.getenv("ENTRA_REQUIRED_SCOPE", "Api.access").strip()
 
 # Si =1, /api/chat y /api/session requieren Bearer Entra + rol permitido.
 # Si =0 (default), se permite acceso anónimo (dev local), pero usuarios SSO
@@ -123,7 +132,7 @@ ENTRA_EXPECTED_AUDIENCE = os.getenv("ENTRA_EXPECTED_AUDIENCE", "").strip()
 ENTRA_SSO_ENFORCE = os.getenv("ENTRA_SSO_ENFORCE", "0").strip() == "1"
 
 # Roles SSO autorizados (case-insensitive, comma-separated).
-# Default: cco,jefe_maquinistas.  Configurable en producción vía env var.
+# Default: cco,jefe_maquinistas.
 _raw_allowed = os.getenv("ENTRA_SSO_ALLOWED_ROLES", "cco,jefe_maquinistas")
 ENTRA_SSO_ALLOWED_ROLES: frozenset[str] = frozenset(
     r.strip().lower() for r in _raw_allowed.split(",") if r.strip()

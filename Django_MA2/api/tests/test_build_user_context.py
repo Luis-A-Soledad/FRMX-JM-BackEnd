@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.test import TestCase
+from django.test.client import RequestFactory
 
 from accounts.models import Role, UserProfile
 from accounts.utils import ROLE_ANON, ROLE_UNKNOWN, build_user_context
@@ -55,3 +56,41 @@ class BuildUserContextTests(TestCase):
         ctx1 = build_user_context(AnonymousUser())
         ctx2 = build_user_context(AnonymousUser())
         self.assertIsNot(ctx1["scopes"], ctx2["scopes"])
+
+    def test_claim_roles_drive_access_level_and_capabilities(self):
+        request = RequestFactory().get("/api/sso/whoami/")
+        request.auth = {
+            "scp": "Api.access",
+            "roles": ["CCO"],
+            "oid": "oid-1",
+            "name": "CCO User",
+        }
+
+        ctx = build_user_context(self.user_no_profile, request=request)
+        self.assertEqual(ctx["role"], "CCO")
+        self.assertEqual(ctx["access_level"], 2)
+        self.assertEqual(ctx["capabilities"], ["*"])
+        self.assertTrue(ctx["allowed"])
+
+    def test_claim_role_precedence_cco_wins(self):
+        request = RequestFactory().get("/api/sso/whoami/")
+        request.auth = {
+            "scp": "Api.access",
+            "roles": ["JEFE_MAQUINISTAS", "CCO"],
+        }
+
+        ctx = build_user_context(self.user_no_profile, request=request)
+        self.assertEqual(ctx["role"], "CCO")
+        self.assertEqual(ctx["access_level"], 2)
+
+    def test_missing_required_scope_marks_not_allowed(self):
+        request = RequestFactory().get("/api/sso/whoami/")
+        request.auth = {
+            "scp": "openid profile",
+            "roles": ["JEFE_MAQUINISTAS"],
+        }
+
+        ctx = build_user_context(self.user_no_profile, request=request)
+        self.assertEqual(ctx["role"], "JEFE_MAQUINISTAS")
+        self.assertEqual(ctx["access_level"], 1)
+        self.assertFalse(ctx["allowed"])
