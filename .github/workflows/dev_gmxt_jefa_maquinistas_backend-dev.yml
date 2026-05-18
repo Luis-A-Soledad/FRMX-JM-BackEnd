@@ -32,16 +32,34 @@ jobs:
         working-directory: Django_MA2
         env:
           DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-          DJANGO_DEBUG: True
+          DJANGO_DEBUG: "True"
           DJANGO_SETTINGS_MODULE: core.settings
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          KEY_VAULT_URL: ${{ secrets.KEY_VAULT_URL }}
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_SEARCH_ENDPOINT: ${{ secrets.AZURE_SEARCH_ENDPOINT }}
+          AZURE_SEARCH_ADMIN_KEY: ${{ secrets.AZURE_SEARCH_ADMIN_KEY }}
+          DATABRICKS_SQL_HOST: ${{ secrets.DATABRICKS_SQL_HOST }}
 
       - name: Collect static files
         run: python manage.py collectstatic --noinput
         working-directory: Django_MA2
         env:
           DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-          DJANGO_DEBUG: True
+          DJANGO_DEBUG: "True"
           DJANGO_SETTINGS_MODULE: core.settings
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          KEY_VAULT_URL: ${{ secrets.KEY_VAULT_URL }}
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_SEARCH_ENDPOINT: ${{ secrets.AZURE_SEARCH_ENDPOINT }}
+          AZURE_SEARCH_ADMIN_KEY: ${{ secrets.AZURE_SEARCH_ADMIN_KEY }}
+          DATABRICKS_SQL_HOST: ${{ secrets.DATABRICKS_SQL_HOST }}
 
       - name: Zip artifact for deployment
         run: zip release.zip ./* -r --exclude "env/*" --exclude "*.pyc" --exclude "__pycache__/*" --exclude ".git/*"
