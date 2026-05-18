@@ -1,3 +1,7 @@
+# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
+# More GitHub Actions for Azure: https://github.com/Azure/actions
+# More info on Python, GitHub Actions, and Azure App Service: https://aka.ms/python-webapps-actions
+
 name: Build and deploy Python app to Azure Web App - jefamaquinista-backend-dev
 
 on:
@@ -9,6 +13,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -25,21 +31,28 @@ jobs:
         run: python manage.py migrate
         working-directory: Django_MA2
         env:
+          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+          DJANGO_DEBUG: True
           DJANGO_SETTINGS_MODULE: core.settings
 
       - name: Collect static files
         run: python manage.py collectstatic --noinput
         working-directory: Django_MA2
+        env:
+          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+          DJANGO_DEBUG: True
+          DJANGO_SETTINGS_MODULE: core.settings
 
       - name: Zip artifact for deployment
         run: zip release.zip ./* -r --exclude "env/*" --exclude "*.pyc" --exclude "__pycache__/*" --exclude ".git/*"
         working-directory: Django_MA2
 
-      - name: Upload artifact for deployment
+      - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@v4
         with:
           name: python-app
-          path: Django_MA2/release.zip
+          path: |
+            Django_MA2/release.zip
 
   deploy:
     runs-on: ubuntu-latest
@@ -49,18 +62,19 @@ jobs:
       url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
 
     steps:
-      - name: Download artifact
+      - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
           name: python-app
 
-      - name: Unzip artifact
+      - name: Unzip artifact for deployment
         run: unzip release.zip
 
-      - name: Deploy to Azure Web App
+      - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
         with:
           app-name: 'jefamaquinista-backend-dev'
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
+ 
