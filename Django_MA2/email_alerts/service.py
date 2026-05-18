@@ -9,6 +9,7 @@ dependencias compiladas como thrift en Windows.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from datetime import date, datetime
@@ -143,6 +144,16 @@ def _serialize_dynamic_value(value: Any) -> Any:
             return value.decode("utf-8")
         except UnicodeDecodeError:
             return value.hex()
+    # Intenta parsear strings JSON (arrays u objetos)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if (stripped.startswith('[') and stripped.endswith(']')) or \
+           (stripped.startswith('{') and stripped.endswith('}')):
+            try:
+                return json.loads(stripped)
+            except json.JSONDecodeError:
+                # Si no es JSON válido, retorna el string original
+                return value
     return value
 
 
