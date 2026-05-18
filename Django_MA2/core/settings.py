@@ -120,6 +120,7 @@ ENTRA_DISCOVERY_URL = os.getenv("ENTRA_DISCOVERY_URL", "").strip() or None
 
 # ── PKCE / public-client support (frontend reads these via /api/sso/config/) ──
 ENTRA_FRONTEND_CLIENT_ID = os.getenv("ENTRA_FRONTEND_CLIENT_ID", "").strip()
+ENTRA_FRONTEND_CLIENT_SECRET = os.getenv("ENTRA_FRONTEND_CLIENT_SECRET", "").strip()
 ENTRA_API_SCOPE = os.getenv("ENTRA_API_SCOPE", "").strip()
 ENTRA_SSO_SCOPES = os.getenv("ENTRA_SSO_SCOPES", "").strip()
 ENTRA_AUTHORITY = os.getenv("ENTRA_AUTHORITY", "").strip()

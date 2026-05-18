@@ -367,6 +367,8 @@ class SSOTokenExchangeView(APIView):
             or getattr(django_settings, "ENTRA_API_SCOPE", "")
         )
 
+        client_secret = getattr(django_settings, "ENTRA_FRONTEND_CLIENT_SECRET", "")
+
         payload = {
             "grant_type": "authorization_code",
             "client_id": client_id,
@@ -374,6 +376,8 @@ class SSOTokenExchangeView(APIView):
             "redirect_uri": serializer.validated_data["redirect_uri"],
             "code_verifier": serializer.validated_data["code_verifier"],
         }
+        if client_secret:
+            payload["client_secret"] = client_secret
         if scope:
             payload["scope"] = scope
 
