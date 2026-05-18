@@ -38,7 +38,7 @@ class WhoAmISSOTests(TestCase):
     """Integration tests for the /api/sso/whoami/ endpoint."""
 
     URL = "/api/sso/whoami/"
-    ME_URL = "/api/me/"
+
 
     def setUp(self):
         self.client = APIClient()
@@ -290,22 +290,4 @@ class WhoAmISSOTests(TestCase):
 
         self.assertEqual(resp.status_code, 401)
 
-    @patch("api.authentication.entra._get_discovery", return_value=FAKE_DISCOVERY)
-    @patch("api.authentication.entra._get_jwk_client")
-    def test_me_alias_returns_same_context(self, mock_jwk_factory, mock_disc):
-        mock_key = MagicMock()
-        mock_key.key = "fake-rsa-key"
-        mock_client = MagicMock()
-        mock_client.get_signing_key_from_jwt.return_value = mock_key
-        mock_jwk_factory.return_value = mock_client
 
-        claims = {**FAKE_CLAIMS, "roles": ["CCO"]}
-        with patch("api.authentication.entra.jwt.decode") as mock_decode:
-            mock_decode.return_value = claims
-            resp = self.client.get(
-                self.ME_URL,
-                HTTP_AUTHORIZATION="Bearer eyJ.valid.me",
-            )
-
-        self.assertEqual(resp.status_code, 200)
-        self.assertNotIn("access_level", resp.json())

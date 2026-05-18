@@ -433,6 +433,3 @@ class WhoAmIView(APIView):
             }
         )
 
-
-class MeView(WhoAmIView):
-    """GET /api/me/ alias for /api/sso/whoami/."""

@@ -6,7 +6,6 @@ from .views import (
     SSOConfigView,
     SSOTokenExchangeView,
     WhoAmIView,
-    MeView,
 )
 
 urlpatterns = [
@@ -16,5 +15,4 @@ urlpatterns = [
     path("sso/config/", SSOConfigView.as_view(), name="sso_config"),
     path("sso/token/", SSOTokenExchangeView.as_view(), name="sso_token"),
     path("sso/whoami/", WhoAmIView.as_view(), name="whoami"),
-    path("me/", MeView.as_view(), name="me"),
 ]
