@@ -17,6 +17,7 @@ from api.permissions import IsAllowedSSORole
 
 from .service import (
     fetch_calificaciones_maquinista,
+    fetch_comparativa_maquinistas,
     fetch_frecuencia_alertas_maquinista,
     fetch_resumen_semanal_maquinista,
     fetch_viajes_maquinista,
@@ -274,5 +275,59 @@ class ToMaquinistaView(APIView):
             return _error_response(
                 "DATABRICKS_ERROR",
                 "No fue posible obtener datos de TO en este momento.",
+                http_status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+
+class ComparativaMaquinistasView(APIView):
+    """GET /api/calificaciones/comparativa/ — comparativa entre maquinistas en un periodo."""
+
+    permission_classes = [IsAllowedSSORole]
+
+    def get_authenticators(self):
+        return _calificaciones_authenticators()
+
+    def get(self, request: Request) -> Response:
+        id_mejor_maquinista = request.query_params.get("id_mejor_maquinista")
+        id_maquinista = request.query_params.get("id_maquinista")
+        fecha_inicio = request.query_params.get("fecha_inicio")
+        fecha_fin = request.query_params.get("fecha_fin")
+        id_maquinista_opcional = request.query_params.get("id_maquinista_opcional")
+
+        errors: dict = {}
+        if not id_mejor_maquinista:
+            errors["id_mejor_maquinista"] = "Parámetro requerido."
+
+        if not id_maquinista:
+            errors["id_maquinista"] = "Parámetro requerido."
+
+        if not fecha_inicio:
+            errors["fecha_inicio"] = "Parámetro requerido."
+        elif err := _validate_date(fecha_inicio, "fecha_inicio"):
+            errors["fecha_inicio"] = err
+
+        if not fecha_fin:
+            errors["fecha_fin"] = "Parámetro requerido."
+        elif err := _validate_date(fecha_fin, "fecha_fin"):
+            errors["fecha_fin"] = err
+
+        if errors:
+            return _error_response(
+                "PARAMETROS_INVALIDOS",
+                "Parámetros inválidos o faltantes.",
+                details=errors,
+            )
+
+        try:
+            rows = fetch_comparativa_maquinistas(
+                id_mejor_maquinista, id_maquinista, fecha_inicio, fecha_fin,
+                id_maquinista_opcional=id_maquinista_opcional,
+            )
+            return Response({"data": rows}, status=status.HTTP_200_OK)
+        except RuntimeError:
+            logger.exception("Error consultando Databricks para comparativa maquinistas")
+            return _error_response(
+                "DATABRICKS_ERROR",
+                "No fue posible obtener la comparativa en este momento.",
                 http_status=status.HTTP_502_BAD_GATEWAY,
             )
