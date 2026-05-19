@@ -578,6 +578,7 @@ def fetch_alertas_page(
         f"detail_bp_pres_at_start, "
         f"detail_bp_pres_at_end, "
         f"prioridad "
+        #f"tipo_alerta "
         f"FROM {table_name} "
         f"{train_filter} "
         f"ORDER BY {ts_col} DESC "
