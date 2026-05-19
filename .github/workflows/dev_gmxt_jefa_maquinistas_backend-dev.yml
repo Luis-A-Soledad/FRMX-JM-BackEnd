@@ -36,56 +36,41 @@ jobs:
           python manage.py migrate
         working-directory: Django_MA2
         env:
-          DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
-          DJANGO_DEBUG: "True"
-          DJANGO_SETTINGS_MODULE: core.settings
+          KEY_VAULT_URL: ${{ secrets.KEY_VAULT_URL }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          KEY_VAULT_URL: ${{ secrets.KEY_VAULT_URL }}
-          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
-          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
-          AZURE_SEARCH_ENDPOINT: ${{ secrets.AZURE_SEARCH_ENDPOINT }}
-          AZURE_SEARCH_INDEX: ${{ secrets.AZURE_SEARCH_INDEX }}
-          AZURE_SEARCH_ADMIN_KEY: ${{ secrets.AZURE_SEARCH_ADMIN_KEY }}
-          RETRIEVAL_BACKEND: azure-search
-          DATABRICKS_SQL_HOST: ${{ secrets.DATABRICKS_SQL_HOST }}
-          AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT: "text-embedding-3-small"
-          AZURE_OPENAI_API_VERSION: "2025-01-01-preview"
-          AZURE_OPENAI_DEPLOYMENT: "o4-mini"
-          DATABRICKS_ENDPOINT_URL: ${{ secrets.DATABRICKS_ENDPOINT_URL }}
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          GENIE_SPACE_ID: ${{ secrets.GENIE_SPACE_ID }}
-          DATABRICKS_WAREHOUSE_ID: ${{ secrets.DATABRICKS_WAREHOUSE_ID }}
+          DATABRICKS_ENDPOINT_URL: "https://adb-7405609941721101.1.azuredatabricks.net/serving-endpoints/multiagente_ferromex/invocations"
+          DATABRICKS_HOST: "https://adb-7405609941721101.1.azuredatabricks.net"
+          GENIE_SPACE_ID: "01f14b2f309b1e669c186a15f50905bd"
+          DATABRICKS_WAREHOUSE_ID: "3c6ecfd4333dacb5"
+          DJANGO_SECRET_KEY: "7O5HjS8vuyQMP_CYt9lrPsRslQCWSWCdEWSDGugcJB2EP43UhKjKynixzaKgzPy6klk"
+          DJANGO_DEBUG: "True"
           DJANGO_ALLOWED_HOSTS: ${{ secrets.DJANGO_ALLOWED_HOSTS }}
           ENTRA_SSO_ENFORCE: "1"
+          #DJANGO_SETTINGS_MODULE: core.settings
+          #DATABRICKS_SQL_HOST: ${{ secrets.DATABRICKS_SQL_HOST }}
           SSO_ROLE_BYPASS_ENABLED: "1"
           SSO_ROLE_BYPASS_HEADER: "X-Bypass-Role"
           SSO_ROLE_BYPASS_MAP: "Angelica.Perez1@mx.ey.com:JEFE_MAQUINISTAS"
-          RAG_BASE_TOP: "3"
-          RAG_WIN_CHUNKS: "2"
-          RAG_WIN_PAGES: "1"
-          RAG_TOP_RETURN: "12"
-          RAG_CTX_TOKEN_BUDGET: "2200"
-          RAG_CTX_CHAR_BUDGET: "11000"
-          RAG_TRIM_CHUNK_CHARS: "1600"
           DEFAULT_ZONE: "UTC"
           GENIE_TIMEOUT_SECONDS: "60"
-          OUTPUT_DIR: "output"
           ENTRA_AUTH_ENABLED: "1"
-          ENTRA_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          ENTRA_AUDIENCE: ${{ secrets.AZURE_AUDIENCE }}
-          ENTRA_DISCOVERY_URL: ${{ secrets.ENTRA_DISCOVERY_URL }}
-          ENTRA_FRONTEND_CLIENT_ID: ${{ secrets.AZURE_FRONTEND_CLIENT_ID }}
-          ENTRA_FRONTEND_CLIENT_SECRET: ${{ secrets.AZURE_FRONTEND_CLIENT_SECRET }}
-          ENTRA_API_SCOPE: ${{ secrets.AZURE_API_SCOPE }}
-          ENTRA_SSO_SCOPES: ${{ secrets.AZURE_SSO_SCOPES }}
-          ENTRA_AUTHORITY: ${{ secrets.AZURE_AUTHORITY }}
-          ENTRA_EXPECTED_AUDIENCE: ${{ secrets.AZURE_EXPECTED_AUDIENCE }}
+          ENTRA_TENANT_ID: "e877d174-099c-4491-97d8-d655a7c6b3d4"
+          ENTRA_AUDIENCE: "api://4f3dcf78-4470-4f17-8ca3-869746448ee8"
+          ENTRA_DISCOVERY_URL: ""
+          ENTRA_FRONTEND_CLIENT_ID: "3d32a6a9-17f8-4d81-bdcb-2839c548b58d"
+          ENTRA_FRONTEND_CLIENT_SECRET: "IE48Q~PtvrCxouAdb6Waq151HIvWQBKFhWhQEc9R"
+          ENTRA_API_SCOPE: "api://4f3dcf78-4470-4f17-8ca3-869746448ee8/Api.access"
+          ENTRA_SSO_SCOPES: "openid profile offline_access api://4f3dcf78-4470-4f17-8ca3-869746448ee8/Api.access"
+          ENTRA_AUTHORITY: "https://login.microsoftonline.com/e877d174-099c-4491-97d8-d655a7c6b3d4"
+          ENTRA_EXPECTED_AUDIENCE: "api://4f3dcf78-4470-4f17-8ca3-869746448ee8"
           ENTRA_REQUIRED_SCOPE: "Api.access"
+          ENTRA_BACKEND_CALLBACK_URI: http://localhost:8000/api/sso/callback/
+          ENTRA_FRONTEND_CALLBACK_URL: http://localhost:53007
           EMAIL_ALERTS_TABLE: "db_jefamaquinista_dev_01_7405609941721101.alertas.email_alerts_operational"
           EMAIL_ALERTS_REQUEST_TIMEOUT_SECS: "60"
-          DATABRICKS_AZURE_AD_SCOPE: ${{ secrets.DATABRICKS_AZURE_AD_SCOPE }}
+          DATABRICKS_AZURE_AD_SCOPE: "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d/.default"
 
       - name: Zip artifact for deployment
         run: zip release.zip ./* -r --exclude "*.pyc" --exclude "__pycache__/*" --exclude ".git/*"
