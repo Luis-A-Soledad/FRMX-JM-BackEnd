@@ -837,3 +837,42 @@ def fetch_to_maquinista(
     ]
     columns, rows = _execute_statement(query, parameters=parameters)
     return _rows_to_dicts(columns, rows)
+
+
+def fetch_comparativa_maquinistas(
+    id_mejor_maquinista: str,
+    id_maquinista: str,
+    fecha_inicio: str,
+    fecha_fin: str,
+    id_maquinista_opcional: str | None = None,
+) -> list[dict[str, Any]]:
+    """Llama a fn_comparativa_maquinistas(p_id_mejor_maquinista, p_id_maquinista, p_fecha_inicio, p_fecha_fin, p_id_maquinista_opcional).
+
+    Retorna lista de dicts con: Etiqueta, nombre_maquinista, Score,
+    Total_Alertas, Distrito, Fecha.
+    """
+    if id_maquinista_opcional is not None:
+        query = (
+            "SELECT * FROM ey_data_ai_dev.gold.fn_comparativa_maquinistas("
+            ":p_id_mejor_maquinista, :p_id_maquinista, :p_fecha_inicio, :p_fecha_fin, :p_id_maquinista_opcional)"
+        )
+        parameters = [
+            {"name": "p_id_mejor_maquinista", "value": id_mejor_maquinista, "type": "STRING"},
+            {"name": "p_id_maquinista", "value": id_maquinista, "type": "STRING"},
+            {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
+            {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
+            {"name": "p_id_maquinista_opcional", "value": id_maquinista_opcional, "type": "STRING"},
+        ]
+    else:
+        query = (
+            "SELECT * FROM ey_data_ai_dev.gold.fn_comparativa_maquinistas("
+            ":p_id_mejor_maquinista, :p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
+        )
+        parameters = [
+            {"name": "p_id_mejor_maquinista", "value": id_mejor_maquinista, "type": "STRING"},
+            {"name": "p_id_maquinista", "value": id_maquinista, "type": "STRING"},
+            {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
+            {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
+        ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
