@@ -254,6 +254,7 @@ def build_alerta_response(
         "id": id_val,
         "titulo": titulo,
         "type": _resolve_type(normalized.get("tipoAlerta") or normalized.get("tipo_alerta")),
+        "nombre_alerta": normalized.get("nombre_alerta"),
         "train_id": normalized.get("train_id"),
         "descripcion": _safe_str(normalized.get("descripcion"), "") or _compose_descripcion(normalized),
         "estado": _derive_estado(normalized),
