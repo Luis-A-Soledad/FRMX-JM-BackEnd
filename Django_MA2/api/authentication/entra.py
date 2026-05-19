@@ -140,10 +140,12 @@ class EntraBearerAuthentication(BaseAuthentication):
 
     def authenticate(self, request):
         auth_header = request.META.get("HTTP_AUTHORIZATION", "")
-        if not auth_header.startswith("Bearer "):
-            return None
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+        else:
+            # Fallback: read token from httpOnly cookie
+            token = request.COOKIES.get("access_token", "")
 
-        token = auth_header[7:]  # strip "Bearer "
         if not token:
             return None
 

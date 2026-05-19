@@ -95,15 +95,19 @@ TEMPLATES = [
 ]
 
 # CORS — abierto solo en desarrollo; en prod usar allowlist explicita.
+_cors_frontend = os.getenv("CORS_FRONTEND_ORIGIN", "http://localhost:3000").strip()
+
 if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
-    CORS_ALLOWED_ORIGINS = []
+    CORS_ALLOW_ALL_ORIGINS = False
+    CORS_ALLOWED_ORIGINS = [_cors_frontend] if _cors_frontend else ["http://localhost:3000"]
 else:
     CORS_ALLOW_ALL_ORIGINS = False
     _cors_allowed_raw = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
     CORS_ALLOWED_ORIGINS = [
         origin.strip() for origin in _cors_allowed_raw.split(",") if origin.strip()
     ]
+
+CORS_ALLOW_CREDENTIALS = True
 
 STATIC_URL = "/static/"
 
@@ -126,6 +130,12 @@ ENTRA_SSO_SCOPES = os.getenv("ENTRA_SSO_SCOPES", "").strip()
 ENTRA_AUTHORITY = os.getenv("ENTRA_AUTHORITY", "").strip()
 ENTRA_EXPECTED_AUDIENCE = os.getenv("ENTRA_EXPECTED_AUDIENCE", "").strip()
 ENTRA_REQUIRED_SCOPE = os.getenv("ENTRA_REQUIRED_SCOPE", "Api.access").strip()
+
+# ── Server-side OAuth callback flow (Option B) ──
+# URL del backend donde Azure redirige después del login (registrar en Azure Portal)
+ENTRA_BACKEND_CALLBACK_URI = os.getenv("ENTRA_BACKEND_CALLBACK_URI", "").strip()
+# URL del frontend donde el backend redirige con el token después del exchange
+ENTRA_FRONTEND_CALLBACK_URL = os.getenv("ENTRA_FRONTEND_CALLBACK_URL", "").strip()
 
 # Si =1, /api/chat y /api/session requieren Bearer Entra + rol permitido.
 # Si =0 (default), se permite acceso anónimo (dev local), pero usuarios SSO
@@ -183,6 +193,13 @@ _auth_classes = []
 if ENTRA_AUTH_ENABLED:
     _auth_classes.append("api.authentication.entra.EntraBearerAuthentication")
 _auth_classes.append("rest_framework_simplejwt.authentication.JWTAuthentication")
+
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+}
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [

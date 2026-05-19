@@ -87,10 +87,15 @@
 #
 #
 
+import hashlib
 import os
+import secrets
+import base64
+from urllib.parse import urlencode
 
 import requests as http_requests
 from django.conf import settings as django_settings
+from django.http import HttpResponseRedirect
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -432,4 +437,206 @@ class WhoAmIView(APIView):
                 "scopes": user_context["scopes"],
             }
         )
+
+
+# ─── Server-side OAuth flow (Option B) ────────────────────────────────────────
+
+def _generate_pkce():
+    """Generate PKCE code_verifier and code_challenge."""
+    code_verifier = secrets.token_urlsafe(64)[:128]
+    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+    return code_verifier, code_challenge
+
+
+def _build_entra_authorize_url() -> str:
+    """Build Entra OAuth2 authorize endpoint URL."""
+    authority = (getattr(django_settings, "ENTRA_AUTHORITY", "") or "").strip()
+    tenant_id = (getattr(django_settings, "ENTRA_TENANT_ID", "") or "").strip()
+
+    if authority:
+        normalized = authority.rstrip("/")
+        if "/oauth2" in normalized.lower():
+            return normalized.replace("/token", "/authorize")
+        return f"{normalized}/oauth2/v2.0/authorize"
+
+    if tenant_id:
+        return f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize"
+
+    return ""
+
+
+class SSOLoginView(APIView):
+    """GET /api/sso/login/ — Inicia el flujo OAuth. Redirige al usuario a Microsoft."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        authorize_url = _build_entra_authorize_url()
+        if not authorize_url:
+            return Response(
+                {"detail": "SSO authorize endpoint is not configured."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        client_id = getattr(django_settings, "ENTRA_FRONTEND_CLIENT_ID", "")
+        if not client_id:
+            return Response(
+                {"detail": "ENTRA_FRONTEND_CLIENT_ID is not configured."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        callback_uri = getattr(django_settings, "ENTRA_BACKEND_CALLBACK_URI", "")
+        if not callback_uri:
+            return Response(
+                {"detail": "ENTRA_BACKEND_CALLBACK_URI is not configured."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        scope = (
+            getattr(django_settings, "ENTRA_SSO_SCOPES", "")
+            or getattr(django_settings, "ENTRA_API_SCOPE", "")
+            or "openid profile email"
+        )
+
+        # Generate PKCE + state
+        code_verifier, code_challenge = _generate_pkce()
+        state = secrets.token_urlsafe(32)
+
+        # Store in Django session for retrieval in callback
+        request.session["sso_code_verifier"] = code_verifier
+        request.session["sso_state"] = state
+
+        params = {
+            "client_id": client_id,
+            "response_type": "code",
+            "redirect_uri": callback_uri,
+            "scope": scope,
+            "state": state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+            "response_mode": "query",
+        }
+
+        redirect_url = f"{authorize_url}?{urlencode(params)}"
+        return HttpResponseRedirect(redirect_url)
+
+
+class SSOCallbackView(APIView):
+    """GET /api/sso/callback/ — Recibe el code de Microsoft y devuelve tokens al frontend."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        # Validate state to prevent CSRF
+        state = request.GET.get("state", "")
+        stored_state = request.session.get("sso_state", "")
+
+        if not state or not stored_state or state != stored_state:
+            return Response(
+                {"detail": "Invalid or missing state parameter."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        code = request.GET.get("code")
+        if not code:
+            error = request.GET.get("error", "unknown_error")
+            error_desc = request.GET.get("error_description", "")
+            return Response(
+                {"detail": f"Azure returned error: {error}", "description": error_desc},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Retrieve PKCE code_verifier from session
+        code_verifier = request.session.get("sso_code_verifier", "")
+        if not code_verifier:
+            return Response(
+                {"detail": "Session expired. code_verifier not found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Clean up session
+        request.session.pop("sso_code_verifier", None)
+        request.session.pop("sso_state", None)
+
+        # Exchange code for tokens
+        token_url = _build_entra_token_url()
+        if not token_url:
+            return Response(
+                {"detail": "SSO token endpoint is not configured."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        client_id = getattr(django_settings, "ENTRA_FRONTEND_CLIENT_ID", "")
+        client_secret = getattr(django_settings, "ENTRA_FRONTEND_CLIENT_SECRET", "")
+        callback_uri = getattr(django_settings, "ENTRA_BACKEND_CALLBACK_URI", "")
+
+        scope = (
+            getattr(django_settings, "ENTRA_SSO_SCOPES", "")
+            or getattr(django_settings, "ENTRA_API_SCOPE", "")
+            or "openid profile email"
+        )
+
+        payload = {
+            "grant_type": "authorization_code",
+            "client_id": client_id,
+            "code": code,
+            "redirect_uri": callback_uri,
+            "code_verifier": code_verifier,
+        }
+        if client_secret:
+            payload["client_secret"] = client_secret
+        if scope:
+            payload["scope"] = scope
+
+        try:
+            upstream = http_requests.post(
+                token_url,
+                data=payload,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=15,
+            )
+        except http_requests.RequestException:
+            return Response(
+                {"detail": "Unable to reach Entra token endpoint."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if upstream.status_code >= 400:
+            try:
+                body = upstream.json()
+            except ValueError:
+                body = {"raw": upstream.text}
+            return Response(
+                {"detail": "Entra token exchange failed.", "entra_error": body},
+                status=upstream.status_code,
+            )
+
+        tokens = upstream.json()
+        access_token = tokens.get("access_token", "")
+
+        # Redirect to frontend with token in httpOnly cookie
+        frontend_callback = getattr(django_settings, "ENTRA_FRONTEND_CALLBACK_URL", "")
+        if not frontend_callback:
+            # Fallback: return tokens as JSON
+            return Response(tokens, status=status.HTTP_200_OK)
+
+        redirect_url = frontend_callback.rstrip("/")
+        response = HttpResponseRedirect(redirect_url)
+
+        # Set access_token as httpOnly cookie (not accessible via JS, sent automatically)
+        is_secure = redirect_url.startswith("https")
+        max_age = tokens.get("expires_in", 3600)
+        response.set_cookie(
+            "access_token",
+            access_token,
+            httponly=True,
+            secure=is_secure,
+            samesite="None" if is_secure else "Lax",
+            max_age=max_age,
+            path="/",
+        )
+        return response
 
