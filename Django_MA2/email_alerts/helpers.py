@@ -209,6 +209,21 @@ def _format_iso_timestamp(value: Any) -> str | None:
     return s + "Z"
 
 
+_TIPO_ALERTA_TO_TYPE: dict[str, str] = {
+    "Alerta_01": "Velocidad",
+    "Alerta_02": "Diferencia",
+    "Alerta_03": "Reduccion",
+    "Alerta_06": "Forma A",
+}
+
+
+def _resolve_type(tipo_alerta: Any) -> str | None:
+    """Mapea tipo_alerta (ej. Alerta_01) a su etiqueta de type."""
+    if tipo_alerta is None:
+        return None
+    return _TIPO_ALERTA_TO_TYPE.get(str(tipo_alerta).strip(), str(tipo_alerta))
+
+
 def build_alerta_response(
     normalized: dict[str, Any],
     timestamp_col: str | None = None,
@@ -238,6 +253,10 @@ def build_alerta_response(
     alerta = {
         "id": id_val,
         "titulo": titulo,
+        "type": _resolve_type(normalized.get("tipoAlerta") or normalized.get("tipo_alerta")),
+        "nombre_alerta": normalized.get("nombre_alerta"),
+        "AFT": normalized.get("AFT"),
+        "train_id": normalized.get("train_id"),
         "descripcion": _safe_str(normalized.get("descripcion"), "") or _compose_descripcion(normalized),
         "estado": _derive_estado(normalized),
         "fechaCreacion": fecha_creacion,
@@ -249,30 +268,12 @@ def build_alerta_response(
         "pkInicio": normalized.get("pkInicio"),
         "pkFin": normalized.get("pkFin"),
         "ultimaAlerta": ultima_alerta,
-        "horaActualizacion": fecha_creacion,
         "prioridad": _prioridad_label(normalized.get("prioridad")),
+        "last_event": _format_iso_timestamp(normalized.get("last_event")),
+        "detail_max_speed": normalized.get("detail_max_speed"),
         "detail_speed_limit": normalized.get("detail_speed_limit"),
+        "detail_bp_pres_at_start": normalized.get("detail_bp_pres_at_start"),
+        "detail_bp_pres_at_end": normalized.get("detail_bp_pres_at_end"),
     }
-
-    allowed_extras = {
-        "train_id",
-        "tipoAlerta",
-        "detail_speed_at_start",
-        "detail_speed_at_end",
-        "detail_speed_current",
-        "detail_speed_limit",
-        "detail_max_speed",
-        "detail_bp_pres_at_start",
-        "detail_bp_pres_at_end",
-        "detail_duration_minutes",
-        "last_event",
-        "event_time_utc",
-    }
-    extras = {
-        key: val
-        for key, val in normalized.items()
-        if key in allowed_extras and val is not None
-    }
-    alerta["extras"] = extras
 
     return alerta

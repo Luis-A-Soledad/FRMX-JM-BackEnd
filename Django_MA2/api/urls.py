@@ -8,6 +8,7 @@ from .views import (
     SSOLoginView,
     SSOCallbackView,
     WhoAmIView,
+    CheckSessionView,
 )
 
 urlpatterns = [
@@ -19,4 +20,5 @@ urlpatterns = [
     path("sso/login/", SSOLoginView.as_view(), name="sso_login"),
     path("sso/callback/", SSOCallbackView.as_view(), name="sso_callback"),
     path("sso/whoami/", WhoAmIView.as_view(), name="whoami"),
+    path("sso/check-session/", CheckSessionView.as_view(), name="check-session"),
 ]
