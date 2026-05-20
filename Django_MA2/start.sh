@@ -7,4 +7,4 @@ python3 manage.py migrate
 echo "Recolectando archivos estaticos..."
 python3 manage.py collectstatic --noinput
 echo "Iniciando Daphne..."
-python3 -m daphne core.asgi:application --host 0.0.0.0 --port 8000
+python3 -m daphne -b 0.0.0.0 -p 8000 core.asgi:application
