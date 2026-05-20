@@ -46,7 +46,7 @@ jobs:
           DATABRICKS_WAREHOUSE_ID: "3c6ecfd4333dacb5"
           DJANGO_SECRET_KEY: "7O5HjS8vuyQMP_CYt9lrPsRslQCWSWCdEWSDGugcJB2EP43UhKjKynixzaKgzPy6klk"
           DJANGO_DEBUG: "True"
-          DJANGO_ALLOWED_HOSTS: ${{ secrets.DJANGO_ALLOWED_HOSTS }}
+          DJANGO_ALLOWED_HOSTS: "jefamaquinista-backend-dev-gjgbhycmcygkakh8.southcentralus-01.azurewebsites.net"
           ENTRA_SSO_ENFORCE: "1"
           #DJANGO_SETTINGS_MODULE: core.settings
           #DATABRICKS_SQL_HOST: ${{ secrets.DATABRICKS_SQL_HOST }}
