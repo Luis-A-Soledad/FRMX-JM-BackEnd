@@ -110,6 +110,8 @@ else:
 CORS_ALLOW_CREDENTIALS = True
 
 STATIC_URL = "/static/"
+# Static files (CSS, JavaScript, Images)
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
