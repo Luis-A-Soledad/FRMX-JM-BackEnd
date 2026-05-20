@@ -2,7 +2,10 @@ import multiprocessing
 
 max_requests = 1000
 max_requests_jitter = 50
-log_file = "-"
+#log_file = "-"
+errorlog = "-"
+accesslog = "-"
+loglevel = "info"
 bind = "0.0.0.0:8000"
 num_cpus = multiprocessing.cpu_count()
 workers = (num_cpus * 2) + 1
