@@ -6,5 +6,5 @@ python3 manage.py makemigrations
 python3 manage.py migrate
 echo "Recolectando archivos estaticos..."
 python3 manage.py collectstatic --noinput
-echo "Iniciando Gunicorn..."
-python3 -m gunicorn core.wsgi:application -c gunicorn.conf.py
+echo "Iniciando Daphne..."
+python3 -m daphne core.asgi:application --host 0.0.0.0 --port 8000
