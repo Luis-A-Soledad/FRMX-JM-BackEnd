@@ -92,6 +92,7 @@ import os
 import secrets
 import base64
 from urllib.parse import urlencode
+import jwt
 
 import requests as http_requests
 from django.conf import settings as django_settings
@@ -110,6 +111,9 @@ from .serializers import (
     SSOTokenExchangeSerializer,
 )
 from accounts.utils import build_user_context
+from rest_framework_simplejwt.tokens import AccessToken
+
+
 
 # if os.getenv("MOCK_AGENT", "").strip().lower() in ("1", "true", "yes"):
 #     from .agent_runner_mock import run_agent, get_or_create_session, delete_session
@@ -530,7 +534,9 @@ class SSOCallbackView(APIView):
     authentication_classes = []
 
     def get(self, request):
-        # Validate state to prevent CSRF
+        # -----------------------------
+        # 1. Validar state (CSRF)
+        # -----------------------------
         state = request.GET.get("state", "")
         stored_state = request.session.get("sso_state", "")
 
@@ -549,7 +555,9 @@ class SSOCallbackView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Retrieve PKCE code_verifier from session
+        # -----------------------------
+        # 2. Obtener PKCE
+        # -----------------------------
         code_verifier = request.session.get("sso_code_verifier", "")
         if not code_verifier:
             return Response(
@@ -557,39 +565,24 @@ class SSOCallbackView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Clean up session
+        # limpiar sesión
         request.session.pop("sso_code_verifier", None)
         request.session.pop("sso_state", None)
 
-        # Exchange code for tokens
+        # -----------------------------
+        # 3. Intercambiar code por tokens
+        # -----------------------------
         token_url = _build_entra_token_url()
-        if not token_url:
-            return Response(
-                {"detail": "SSO token endpoint is not configured."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        client_id = getattr(django_settings, "ENTRA_FRONTEND_CLIENT_ID", "")
-        client_secret = getattr(django_settings, "ENTRA_FRONTEND_CLIENT_SECRET", "")
-        callback_uri = getattr(django_settings, "ENTRA_BACKEND_CALLBACK_URI", "")
-
-        scope = (
-            getattr(django_settings, "ENTRA_SSO_SCOPES", "")
-            or getattr(django_settings, "ENTRA_API_SCOPE", "")
-            or "openid profile email"
-        )
 
         payload = {
             "grant_type": "authorization_code",
-            "client_id": client_id,
+            "client_id": django_settings.ENTRA_FRONTEND_CLIENT_ID,
+            "client_secret": getattr(django_settings, "ENTRA_FRONTEND_CLIENT_SECRET", ""),
             "code": code,
-            "redirect_uri": callback_uri,
+            "redirect_uri": django_settings.ENTRA_BACKEND_CALLBACK_URI,
             "code_verifier": code_verifier,
+            "scope": "openid profile email",
         }
-        if client_secret:
-            payload["client_secret"] = client_secret
-        if scope:
-            payload["scope"] = scope
 
         try:
             upstream = http_requests.post(
@@ -615,28 +608,93 @@ class SSOCallbackView(APIView):
             )
 
         tokens = upstream.json()
-        access_token = tokens.get("access_token", "")
 
-        # Redirect to frontend with token in httpOnly cookie
-        frontend_callback = getattr(django_settings, "ENTRA_FRONTEND_CALLBACK_URL", "")
-        if not frontend_callback:
-            # Fallback: return tokens as JSON
-            return Response(tokens, status=status.HTTP_200_OK)
+        # -----------------------------
+        # 4. Decodificar ID token de Microsoft
+        # -----------------------------
+        id_token = tokens.get("id_token")
 
-        redirect_url = frontend_callback.rstrip("/")
-        response = HttpResponseRedirect(redirect_url)
+        if not id_token:
+            return Response(
+                {"detail": "No id_token returned from Entra"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        # Set access_token as httpOnly cookie (not accessible via JS, sent automatically)
-        is_secure = redirect_url.startswith("https")
-        max_age = tokens.get("expires_in", 3600)
-        response.set_cookie(
-            "access_token",
-            access_token,
-            httponly=True,
-            secure=is_secure,
-            samesite="None" if is_secure else "Lax",
-            max_age=max_age,
-            path="/",
+        # en producción valida la firma correctamente (JWKS)
+        decoded = jwt.decode(id_token, options={"verify_signature": False})
+
+        email = decoded.get("preferred_username") or decoded.get("email")
+        name = decoded.get("name")
+
+        # -----------------------------
+        # 5. Generar el JWT
+        # -----------------------------        
+        access_token = AccessToken()
+        access_token["email"] = email
+        access_token["name"] = name
+        access_token["roles"] = decoded.get("roles", [])
+        token_str = str(access_token)
+
+        # -----------------------------
+        # 6. Redirigir al frontend con token
+        # -----------------------------
+        frontend_callback = getattr(
+            django_settings, "ENTRA_FRONTEND_CALLBACK_URL", ""
         )
-        return response
 
+        # ✅ usar fragment (#) en lugar de query (?):
+        redirect_url = (
+            f"{frontend_callback.rstrip('/')}"
+            f"#token={token_str}"
+            f"&email={email}"
+            f"&name={name}"
+        )
+
+        return HttpResponseRedirect(redirect_url)
+
+
+def decode_custom_token(token):
+    try:
+        decoded = jwt.decode(
+            token,
+            django_settings.SECRET_KEY,
+            algorithms=["HS256"]
+        )
+        return decoded
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+class CheckSessionView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        auth_header = request.headers.get("Authorization")
+
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return Response(
+                {"authenticated": False},
+                status=401
+            )
+
+        token = auth_header.split(" ")[1]
+
+        decoded = decode_custom_token(token)
+
+        if not decoded:
+            return Response(
+                {"authenticated": False},
+                status=401
+            )
+
+        return Response(
+            {
+                "authenticated": True,
+                "user": {
+                    "email": decoded.get("email"),
+                    "name": decoded.get("name"),
+                    "roles": decoded.get("roles", []),
+                }
+            }
+        )
