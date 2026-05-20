@@ -43,13 +43,14 @@ jobs:
           DATABRICKS_ENDPOINT_URL: "https://adb-7405609941721101.1.azuredatabricks.net/serving-endpoints/multiagente_ferromex/invocations"
           DATABRICKS_HOST: "https://adb-7405609941721101.1.azuredatabricks.net"
           GENIE_SPACE_ID: "01f14b2f309b1e669c186a15f50905bd"
-          DATABRICKS_WAREHOUSE_ID: "3c6ecfd4333dacb5"
+          DATABRICKS_WAREHOUSE_ID: "9e438d2c4a842e0a"
           DJANGO_SECRET_KEY: "7O5HjS8vuyQMP_CYt9lrPsRslQCWSWCdEWSDGugcJB2EP43UhKjKynixzaKgzPy6klk"
           DJANGO_DEBUG: "True"
           DJANGO_ALLOWED_HOSTS: "jefamaquinista-backend-dev-gjgbhycmcygkakh8.southcentralus-01.azurewebsites.net"
           ENTRA_SSO_ENFORCE: "1"
-          #DJANGO_SETTINGS_MODULE: core.settings
-          #DATABRICKS_SQL_HOST: ${{ secrets.DATABRICKS_SQL_HOST }}
+          DJANGO_SETTINGS_MODULE: core.settings
+          DATABRICKS_SQL_HOST: "adb-7405609941721101.1.azuredatabricks.net"
+          DATABRICKS_SQL_HTTP_PATH: "/sql/1.0/warehouses/9e438d2c4a842e0a"
           SSO_ROLE_BYPASS_ENABLED: "1"
           SSO_ROLE_BYPASS_HEADER: "X-Bypass-Role"
           SSO_ROLE_BYPASS_MAP: "Angelica.Perez1@mx.ey.com:JEFE_MAQUINISTAS"
