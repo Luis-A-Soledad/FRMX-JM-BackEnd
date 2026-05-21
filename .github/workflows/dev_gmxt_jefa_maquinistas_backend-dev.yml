@@ -69,7 +69,7 @@ jobs:
           ENTRA_REQUIRED_SCOPE: 'Api.access'
           ENTRA_BACKEND_CALLBACK_URI: 'https://jefamaquinista-backend-dev-gjgbhycmcygkakh8.southcentralus-01.azurewebsites.net/api/sso/callback/'
           ENTRA_FRONTEND_CALLBACK_URL: 'https://jefamaquinista-backend-dev-gjgbhycmcygkakh8.southcentralus-01.azurewebsites.net'
-          CORS_ALLOWED_ORIGINS: 'https://jefamaquinista-backend-dev-gjgbhycmcygkakh8.southcentralus-01.azurewebsites.net,https://statics.teams.cdn.office.net/evergreen-assets/safelinks/2/atp-safelinks.html'
+          CORS_ALLOWED_ORIGINS: 'https://jefamaquinista-backend-dev-gjgbhycmcygkakh8.southcentralus-01.azurewebsites.net,https://statics.teams.cdn.office.net'
           EMAIL_ALERTS_TABLE: 'db_jefamaquinista_dev_01_7405609941721101.alertas.email_alerts_operational'
           EMAIL_ALERTS_REQUEST_TIMEOUT_SECS: '60'
           DATABRICKS_AZURE_AD_SCOPE: '2ff814a6-3304-4ab8-85cb-cd0e6f879c1d/.default'
