@@ -94,23 +94,16 @@ TEMPLATES = [
     },
 ]
 
-# CORS — abierto solo en desarrollo; en prod usar allowlist explicita.
-_cors_frontend = os.getenv("CORS_FRONTEND_ORIGIN", "http://localhost:3000").strip()
 
-if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = False
-    CORS_ALLOWED_ORIGINS = [_cors_frontend] if _cors_frontend else ["http://localhost:3000"]
-else:
-    CORS_ALLOW_ALL_ORIGINS = False
-    _cors_allowed_raw = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
-    CORS_ALLOWED_ORIGINS = [
-        origin.strip() for origin in _cors_allowed_raw.split(",") if origin.strip()
-    ]
+CORS_ALLOW_ALL_ORIGINS = False
+_cors_allowed_raw = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
+CORS_ALLOWED_ORIGINS = [
+    origin.strip() for origin in _cors_allowed_raw.split(",") if origin.strip()
+]
 
 CORS_ALLOW_CREDENTIALS = True
 
 STATIC_URL = "/static/"
-# Static files (CSS, JavaScript, Images)
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -194,13 +187,16 @@ if ENTRA_SSO_ENFORCE and not ENTRA_AUTH_ENABLED:
 _auth_classes = []
 if ENTRA_AUTH_ENABLED:
     _auth_classes.append("api.authentication.entra.EntraBearerAuthentication")
-_auth_classes.append("rest_framework_simplejwt.authentication.JWTAuthentication")
+_auth_classes.append("api.authentication.stateless_jwt.StatelessJWTAuthentication")
 
 from datetime import timedelta
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+    "USER_ID_FIELD": "email",
+    "USER_ID_CLAIM": "email",
+
 }
 
 REST_FRAMEWORK = {
