@@ -47,7 +47,7 @@ jobs:
           DJANGO_SECRET_KEY: '7O5HjS8vuyQMP_CYt9lrPsRslQCWSWCdEWSDGugcJB2EP43UhKjKynixzaKgzPy6klk'
           DJANGO_DEBUG: 'True'
           DJANGO_ALLOWED_HOSTS: 'jefamaquinista-backend-dev-gjgbhycmcygkakh8.southcentralus-01.azurewebsites.net'
-          ENTRA_SSO_ENFORCE: '1'
+          ENTRA_SSO_ENFORCE: '0'
           DJANGO_SETTINGS_MODULE: 'core.settings'
           DATABRICKS_SQL_HOST: 'adb-7405609941721101.1.azuredatabricks.net'
           DATABRICKS_SQL_HTTP_PATH: '/sql/1.0/warehouses/9e438d2c4a842e0a'
