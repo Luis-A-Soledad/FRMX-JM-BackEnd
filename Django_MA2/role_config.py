@@ -6,7 +6,7 @@ Define los permisos de acceso por role para el multiagente.
 roles disponibles:
 - JEFE_MAQUINISTAS: acceso limitado (RAG + db)
 - CCO: acceso completo
-- ANON: acceso completo (redefinible en el futuro)
+- ANON: acceso basico (general)
 
 Para modificar permisos, solo edita el dict PERMISSIONS.
 Para agregar un nuevo role, agrega una entrada nueva en PERMISSIONS.
@@ -36,6 +36,19 @@ PERMISSIONS: dict[str, list[str]] = {
         "general",
     ],
 }
+
+ROLE_HIERARCHY: dict[str, int] = {
+    "CCO": 2,
+    "JEFE_MAQUINISTAS": 1,
+}
+
+CAPABILITIES_BY_LEVEL: dict[int, list[str]] = {
+    2: ["*"],
+    1: ["VIEW_*", "EDIT_SCHEDULE", "QUERY_ALERTS"],
+    0: ["VIEW_BASIC"],
+}
+
+DEFAULT_ACCESS_LEVEL = 0
 
 # ─── Mensajes de acceso denegado por agente ───────────────────────────────────
 # Mensaje amable que se muestra cuando el role no tiene permiso.
@@ -191,5 +204,38 @@ DENIED_SSO_MESSAGE = (
 ALLOWED_SSO_ROLES = frozenset({"cco", "jefe_maquinistas"})
 
 
+def normalize_role_name(role: str) -> str:
+    """Normalize role aliases to a canonical App Role name."""
+    normalized = (role or "").strip().upper()
+    if normalized == "JEFE_MAQUINISTAS2":
+        return "JEFE_MAQUINISTAS"
+    return normalized
+
+
+def resolve_access_level(roles: list[str]) -> tuple[int, list[str], str]:
+    """Resolve highest access level and capabilities from App Roles.
+
+    Returns: (access_level, capabilities, effective_role)
+    """
+    normalized_roles = [normalize_role_name(r) for r in roles if str(r).strip()]
+
+    effective_role = ""
+    best_level = DEFAULT_ACCESS_LEVEL
+    for role in normalized_roles:
+        candidate_level = ROLE_HIERARCHY.get(role)
+        if candidate_level is None:
+            continue
+        if candidate_level > best_level:
+            best_level = candidate_level
+            effective_role = role
+
+    capabilities = CAPABILITIES_BY_LEVEL.get(
+        best_level,
+        CAPABILITIES_BY_LEVEL[DEFAULT_ACCESS_LEVEL],
+    )
+    return best_level, capabilities, effective_role
+
+
 def is_sso_role_allowed(role: str) -> bool:
-    return role.lower() in ALLOWED_SSO_ROLES
+    normalized = normalize_role_name(role)
+    return normalized.lower() in ALLOWED_SSO_ROLES
