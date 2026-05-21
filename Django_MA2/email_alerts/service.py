@@ -739,10 +739,11 @@ def fetch_calificaciones_maquinista(
     Score_Promedio, Alertas_Acumuladas, Frecuencia_Evento, Alerta_Comun.
     """
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_calificaciones_maquinista("
+        "SELECT * FROM :p_catalog.gold.fn_calificaciones_maquinista("
         ":p_fecha_inicio, :p_fecha_fin, :p_jefe_maquinista)"
     )
     parameters = [
+        {"name": "p_catalog", "value": os.getenv("CATALOG", ''), "type": "STRING"},
         {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
         {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
         {"name": "p_jefe_maquinista", "value": jefe_maquinista, "type": "STRING"},
@@ -761,10 +762,11 @@ def fetch_frecuencia_alertas_maquinista(
     Retorna lista de dicts con: Prioridad, Alerta, Frecuencia.
     """
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_frecuencia_alertas_maquinista("
+        "SELECT * FROM :p_catalog.gold.fn_frecuencia_alertas_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
     )
     parameters = [
+        {"name": "p_catalog", "value": os.getenv("CATALOG", ''), "type": "STRING"},
         {"name": "p_id_maquinista", "value": id_maquinista, "type": "STRING"},
         {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
         {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
@@ -783,10 +785,11 @@ def fetch_resumen_semanal_maquinista(
     Retorna lista de dicts con: Score, Total_Alertas, Distrito, Fecha.
     """
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_resumen_semanal_maquinista("
+        "SELECT * FROM :p_catalog.gold.fn_resumen_semanal_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
     )
     parameters = [
+        {"name": "p_catalog", "value": os.getenv("CATALOG", ''), "type": "STRING"},
         {"name": "p_id_maquinista", "value": id_maquinista, "type": "STRING"},
         {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
         {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
@@ -806,10 +809,11 @@ def fetch_viajes_maquinista(
     region, district, alerts (array de structs con priority, message, count).
     """
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_viajes_maquinista("
+        "SELECT * FROM :p_catalog.gold.fn_viajes_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
     )
     parameters = [
+        {"name": "p_catalog", "value": os.getenv("CATALOG", ''), "type": "STRING"},
         {"name": "p_id_maquinista", "value": id_maquinista, "type": "STRING"},
         {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
         {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
@@ -829,10 +833,11 @@ def fetch_to_maquinista(
     to_data (array de structs con to_value, pk_inicio, pk_fin, distrito, region, hora).
     """
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_to_maquinista("
+        "SELECT * FROM :p_catalog.gold.fn_to_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
     )
     parameters = [
+        {"name": "p_catalog", "value": os.getenv("CATALOG", ''), "type": "STRING"},
         {"name": "p_id_maquinista", "value": id_maquinista, "type": "STRING"},
         {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
         {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
@@ -855,10 +860,11 @@ def fetch_comparativa_maquinistas(
     """
     if id_maquinista_opcional is not None:
         query = (
-            "SELECT * FROM ey_data_ai_dev.gold.fn_comparativa_maquinistas("
+            "SELECT * FROM :p_catalog.gold.fn_comparativa_maquinistas("
             ":p_id_mejor_maquinista, :p_id_maquinista, :p_fecha_inicio, :p_fecha_fin, :p_id_maquinista_opcional)"
         )
         parameters = [
+            {"name": "p_catalog", "value": os.getenv("CATALOG", ''), "type": "STRING"},
             {"name": "p_id_mejor_maquinista", "value": id_mejor_maquinista, "type": "STRING"},
             {"name": "p_id_maquinista", "value": id_maquinista, "type": "STRING"},
             {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
@@ -867,10 +873,11 @@ def fetch_comparativa_maquinistas(
         ]
     else:
         query = (
-            "SELECT * FROM ey_data_ai_dev.gold.fn_comparativa_maquinistas("
+            "SELECT * FROM :p_catalog.gold.fn_comparativa_maquinistas("
             ":p_id_mejor_maquinista, :p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
         )
         parameters = [
+            {"name": "p_catalog", "value": os.getenv("CATALOG", ''), "type": "STRING"},
             {"name": "p_id_mejor_maquinista", "value": id_mejor_maquinista, "type": "STRING"},
             {"name": "p_id_maquinista", "value": id_maquinista, "type": "STRING"},
             {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
