@@ -1,0 +1,107 @@
+# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
+# More GitHub Actions for Azure: https://github.com/Azure/actions
+# More info on Python, GitHub Actions, and Azure App Service: https://aka.ms/python-webapps-actions
+
+name: Build and deploy Python app to Azure Web App - jefamaquinista-backend-dev
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python version
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m venv antenv
+          source antenv/bin/activate
+          pip install -r requirements.txt
+        working-directory: Django_MA2
+
+      - name: Run migrations
+        run: |
+          source antenv/bin/activate
+          python manage.py migrate
+        working-directory: Django_MA2
+        env:
+          KEY_VAULT_URL: ${{ secrets.KEY_VAULT_URL }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          DATABRICKS_ENDPOINT_URL: 'https://adb-7405609941721101.1.azuredatabricks.net/serving-endpoints/multiagente_ferromex/invocations'
+          DATABRICKS_HOST: 'https://adb-7405609941721101.1.azuredatabricks.net'
+          GENIE_SPACE_ID: '01f14b2f309b1e669c186a15f50905bd'
+          DATABRICKS_WAREHOUSE_ID: '9e438d2c4a842e0a'
+          DJANGO_SECRET_KEY: '7O5HjS8vuyQMP_CYt9lrPsRslQCWSWCdEWSDGugcJB2EP43UhKjKynixzaKgzPy6klk'
+          DJANGO_DEBUG: 'True'
+          DJANGO_ALLOWED_HOSTS: 'jefamaquinista-backend-dev-gjgbhycmcygkakh8.southcentralus-01.azurewebsites.net'
+          DJANGO_SETTINGS_MODULE: 'core.settings'
+          DATABRICKS_SQL_HOST: 'adb-7405609941721101.1.azuredatabricks.net'
+          DATABRICKS_SQL_HTTP_PATH: '/sql/1.0/warehouses/9e438d2c4a842e0a'
+          DEFAULT_ZONE: 'UTC'
+          GENIE_TIMEOUT_SECONDS: '60'
+          ENTRA_AUTH_ENABLED: '1'
+          ENTRA_TENANT_ID: 'e877d174-099c-4491-97d8-d655a7c6b3d4'
+          ENTRA_AUDIENCE: 'api://4f3dcf78-4470-4f17-8ca3-869746448ee8'
+          ENTRA_DISCOVERY_URL: ''
+          ENTRA_FRONTEND_CLIENT_ID: '3d32a6a9-17f8-4d81-bdcb-2839c548b58d'
+          ENTRA_FRONTEND_CLIENT_SECRET: 'IE48Q~PtvrCxouAdb6Waq151HIvWQBKFhWhQEc9R'
+          ENTRA_API_SCOPE: 'api://4f3dcf78-4470-4f17-8ca3-869746448ee8/Api.access'
+          ENTRA_SSO_SCOPES: 'openid profile offline_access api://4f3dcf78-4470-4f17-8ca3-869746448ee8/Api.access'
+          ENTRA_AUTHORITY: 'https://login.microsoftonline.com/e877d174-099c-4491-97d8-d655a7c6b3d4'
+          ENTRA_EXPECTED_AUDIENCE: 'api://4f3dcf78-4470-4f17-8ca3-869746448ee8'
+          ENTRA_REQUIRED_SCOPE: 'Api.access'
+          ENTRA_BACKEND_CALLBACK_URI: 'https://jefamaquinista-backend-dev-gjgbhycmcygkakh8.southcentralus-01.azurewebsites.net/api/sso/callback/'
+          ENTRA_FRONTEND_CALLBACK_URL: 'https://jefamaquinista-backend-dev-gjgbhycmcygkakh8.southcentralus-01.azurewebsites.net'
+          CORS_ALLOWED_ORIGINS: 'https://jefamaquinista-backend-dev-gjgbhycmcygkakh8.southcentralus-01.azurewebsites.net,https://statics.teams.cdn.office.net'
+          EMAIL_ALERTS_TABLE: 'db_jefamaquinista_dev_01_7405609941721101.alertas.email_alerts_operational'
+          EMAIL_ALERTS_REQUEST_TIMEOUT_SECS: '60'
+          DATABRICKS_AZURE_AD_SCOPE: '2ff814a6-3304-4ab8-85cb-cd0e6f879c1d/.default'
+          CATALOG: 'db_jefamaquinista_dev_01_7405609941721101'
+
+      - name: Zip artifact for deployment
+        run: zip release.zip ./* -r --exclude "*.pyc" --exclude "__pycache__/*" --exclude ".git/*"
+        working-directory: Django_MA2
+
+      - name: Upload artifact for deployment jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-app
+          path: |
+            Django_MA2/release.zip
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: 'Production'
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+
+    steps:
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: python-app
+
+      - name: Unzip artifact for deployment
+        run: unzip release.zip
+
+      - name: 'Deploy to Azure Web App'
+        uses: azure/webapps-deploy@v3
+        id: deploy-to-webapp
+        with:
+          app-name: 'jefamaquinista-backend-dev'
+          slot-name: 'Production'
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
