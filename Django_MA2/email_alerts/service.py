@@ -738,8 +738,10 @@ def fetch_calificaciones_maquinista(
     Retorna lista de dicts con: id_maquinista, nombre_maquinista,
     Score_Promedio, Alertas_Acumuladas, Frecuencia_Evento, Alerta_Comun.
     """
+    catalog = os.getenv("CATALOG", '').strip()
+
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_calificaciones_maquinista("
+        "SELECT * FROM " + catalog + ".gold.fn_calificaciones_maquinista("
         ":p_fecha_inicio, :p_fecha_fin, :p_jefe_maquinista)"
     )
     parameters = [
@@ -760,8 +762,9 @@ def fetch_frecuencia_alertas_maquinista(
 
     Retorna lista de dicts con: Prioridad, Alerta, Frecuencia.
     """
+    catalog = os.getenv("CATALOG", '').strip()
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_frecuencia_alertas_maquinista("
+        "SELECT * FROM " + catalog + ".gold.fn_frecuencia_alertas_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
     )
     parameters = [
@@ -782,8 +785,10 @@ def fetch_resumen_semanal_maquinista(
 
     Retorna lista de dicts con: Score, Total_Alertas, Distrito, Fecha.
     """
+    catalog = os.getenv("CATALOG", '').strip()
+
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_resumen_semanal_maquinista("
+        "SELECT * FROM " + catalog + ".gold.fn_resumen_semanal_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
     )
     parameters = [
@@ -805,8 +810,9 @@ def fetch_viajes_maquinista(
     Retorna lista de dicts con: train_id, ponderation, event_count, date,
     region, district, alerts (array de structs con priority, message, count).
     """
+    catalog = os.getenv("CATALOG", '').strip()
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_viajes_maquinista("
+        "SELECT * FROM " + catalog + ".gold.fn_viajes_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
     )
     parameters = [
@@ -828,8 +834,9 @@ def fetch_to_maquinista(
     Retorna lista de dicts con: train_id, date, improper,
     to_data (array de structs con to_value, pk_inicio, pk_fin, distrito, region, hora).
     """
+    catalog = os.getenv("CATALOG", '').strip()
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_to_maquinista("
+        "SELECT * FROM " + catalog + ".gold.fn_to_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
     )
     parameters = [
@@ -853,9 +860,10 @@ def fetch_comparativa_maquinistas(
     Retorna lista de dicts con: Etiqueta, nombre_maquinista, Score,
     Total_Alertas, Distrito, Fecha.
     """
+    catalog = os.getenv("CATALOG", '').strip()
     if id_maquinista_opcional is not None:
         query = (
-            "SELECT * FROM ey_data_ai_dev.gold.fn_comparativa_maquinistas("
+            "SELECT * FROM " + catalog + ".gold.fn_comparativa_maquinistas("
             ":p_id_mejor_maquinista, :p_id_maquinista, :p_fecha_inicio, :p_fecha_fin, :p_id_maquinista_opcional)"
         )
         parameters = [
@@ -867,7 +875,7 @@ def fetch_comparativa_maquinistas(
         ]
     else:
         query = (
-            "SELECT * FROM ey_data_ai_dev.gold.fn_comparativa_maquinistas("
+            "SELECT * FROM " + catalog + ".gold.fn_comparativa_maquinistas("
             ":p_id_mejor_maquinista, :p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
         )
         parameters = [
