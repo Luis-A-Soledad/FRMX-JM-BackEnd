@@ -93,10 +93,25 @@ class AlertasListView(APIView):
         ts_col = _get_timestamp_col()
         train_id = request.query_params.get("train_id")
         fecha = request.query_params.get("fecha")  # YYYY-MM-DD
+        only_last_12_hours_raw = request.query_params.get("only_last_12_hours", "true").lower()
+        only_last_12_hours = only_last_12_hours_raw in ("true", "1", "yes")
+        if fecha:
+            only_last_12_hours = False
 
         try:
-            rows = fetch_alertas_page(page, size, timestamp_col=ts_col, train_id=train_id, fecha=fecha)
-            total_items = fetch_alertas_count(train_id=train_id, fecha=fecha)
+            rows = fetch_alertas_page(
+                page,
+                size,
+                timestamp_col=ts_col,
+                train_id=train_id,
+                fecha=fecha,
+                last_hours=12 if only_last_12_hours else None,
+            )
+            total_items = fetch_alertas_count(
+                train_id=train_id,
+                fecha=fecha,
+                last_hours=12 if only_last_12_hours else None,
+            )
         except RuntimeError:
             logger.exception("Error consultando Databricks para alertas list")
             return _error_response(
@@ -214,9 +229,15 @@ class AlertasPorLocoPrincipalView(APIView):
 
         only_today_raw = request.query_params.get("only_today", "false").lower()
         only_today = only_today_raw in ("true", "1", "yes")
+        only_last_12_hours_raw = request.query_params.get("only_last_12_hours", "true").lower()
+        only_last_12_hours = only_last_12_hours_raw in ("true", "1", "yes")
 
         try:
-            rows = fetch_email_alerts_operational_rows(limit=limit, only_today=only_today)
+            rows = fetch_email_alerts_operational_rows(
+                limit=limit,
+                only_today=only_today,
+                last_hours=12 if only_last_12_hours else None,
+            )
         except RuntimeError:
             logger.exception("Error consultando Databricks para alertas-por-loco-principal")
             return _error_response(
