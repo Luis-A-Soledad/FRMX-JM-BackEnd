@@ -27,7 +27,16 @@ jobs:
         run: |
           python -m venv antenv
           source antenv/bin/activate
-          pip install -r requirements.txt
+
+          # Upgrade pip para evitar problemas de resolución
+          pip install --upgrade pip
+
+          # Limpiar cache (extra seguro)
+          pip cache purge || true
+
+          # Instalar dependencias sin usar cache
+          pip install --no-cache-dir -r requirements.txt --force-reinstall
+
         working-directory: Django_MA2
 
       - name: Run migrations
