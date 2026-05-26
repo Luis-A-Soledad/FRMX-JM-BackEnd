@@ -208,6 +208,31 @@ class NormalizeColumnsTests(TestCase):
         result = build_alerta_response(normalized, timestamp_col="event_time_utc")
         self.assertEqual(result["fechaCreacion"], "2025-01-01T00:00:00Z")
 
+    def test_ultima_alerta_prefers_nombre_alerta_and_combines_with_titulo(self):
+        raw = {
+            "titulo": "Alerta_01",
+            "nombre_alerta": "Exceso de velocidad",
+        }
+        normalized = normalize_columns(raw)
+        result = build_alerta_response(normalized)
+        self.assertEqual(result["ultimaAlerta"], "Exceso de velocidad (Alerta_01)")
+
+    def test_ultima_alerta_uses_nombre_alerta_when_titulo_missing(self):
+        raw = {
+            "nombre_alerta": "Frenado brusco",
+        }
+        normalized = normalize_columns(raw)
+        result = build_alerta_response(normalized)
+        self.assertEqual(result["ultimaAlerta"], "Frenado brusco")
+
+    def test_ultima_alerta_falls_back_to_titulo(self):
+        raw = {
+            "titulo": "Alerta_03",
+        }
+        normalized = normalize_columns(raw)
+        result = build_alerta_response(normalized)
+        self.assertEqual(result["ultimaAlerta"], "Alerta_03")
+
 
 # ---------------------------------------------------------------------------
 # Tests de endpoint GET /api/alertas (lista paginada)
