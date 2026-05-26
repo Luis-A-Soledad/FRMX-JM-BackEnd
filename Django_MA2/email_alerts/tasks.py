@@ -253,9 +253,12 @@ def _poll_and_broadcast():
         rows = []
 
     if rows:
-        _broadcast_snapshot(channel_layer, rows)
-        _broadcast_alertas_list_snapshot(channel_layer)
-        logger.info("Poller: snapshot broadcast — %d trenes", len(rows))
+        try:
+            _broadcast_snapshot(channel_layer, rows)
+            _broadcast_alertas_list_snapshot(channel_layer)
+            logger.info("Poller: snapshot broadcast — %d trenes", len(rows))
+        except Exception as e:
+            logger.error("Poller: snapshot broadcast failed — %s", str(e))
 
     # 2) Delta incremental de alertas nuevas
     try:
