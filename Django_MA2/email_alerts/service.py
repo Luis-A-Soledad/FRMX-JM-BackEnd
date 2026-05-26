@@ -190,7 +190,7 @@ def _poll_until_done(
 def _resolve_connection() -> tuple[str, str, str, str]:
     """Resuelve host, warehouse_id, token y table_name para Databricks."""
     host = _get_env_or_kv(
-        env_names=["EMAIL_ALERTS_DATABRICKS_HOST", "DATABRICKS_SQL_HOST"],
+        env_names=["EMAIL_ALERTS_DATABRICKS_HOST", "DATABRICKS_SQL_HOST", "DATABRICKS_HOST"],
         kv_secret_names=[
             os.getenv("DATABRICKS_SQL_HOST_SECRET_NAME", "").strip(),
             "DATABRICKS-SQL-HOST",
@@ -366,6 +366,7 @@ def _select_expr_end(
 def fetch_email_alerts_operational_rows(
     limit: int | None = None,
     only_today: bool = False,
+    last_hours: int | None = None,
     train_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Obtiene alertas agrupadas por train_id.
@@ -447,6 +448,10 @@ def fetch_email_alerts_operational_rows(
     params: list[dict[str, str]] = []
     if only_today:
         conditions.append(f"CAST({ts_col} AS DATE) = CURRENT_DATE()")
+    elif last_hours is not None:
+        if last_hours < 1:
+            raise ValueError("last_hours debe ser >= 1.")
+        conditions.append(f"{ts_col} >= CURRENT_TIMESTAMP() - INTERVAL {int(last_hours)} HOURS")
     if train_id:
         conditions.append("train_id = :train_id_param")
         params.append({"name": "train_id_param", "value": train_id, "type": "STRING"})
@@ -498,6 +503,7 @@ def fetch_alertas_page(
     timestamp_col: str | None = None,
     train_id: str | None = None,
     fecha: str | None = None,
+    last_hours: int | None = None,
 ) -> list[dict[str, Any]]:
     """Obtiene una pagina de alertas con ORDER BY timestamp DESC.
 
@@ -519,6 +525,10 @@ def fetch_alertas_page(
     if fecha:
         conditions.append(f"CAST({ts_col} AS DATE) = :fecha_param")
         params.append({"name": "fecha_param", "value": fecha, "type": "STRING"})
+    if last_hours is not None:
+        if last_hours < 1:
+            raise ValueError("last_hours debe ser >= 1.")
+        conditions.append(f"{ts_col} >= CURRENT_TIMESTAMP() - INTERVAL {int(last_hours)} HOURS")
 
     train_filter = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     if not params:
@@ -577,7 +587,7 @@ def fetch_alertas_page(
         f"detail_max_speed, "
         f"detail_bp_pres_at_start, "
         f"detail_bp_pres_at_end, "
-        f"prioridad "
+        f"prioridad, "
         f"tipo_alerta, "
         f"nombre_alerta, "
         f"AFT "
@@ -591,7 +601,11 @@ def fetch_alertas_page(
     return _rows_to_dicts(columns, rows)
 
 
-def fetch_alertas_count(train_id: str | None = None, fecha: str | None = None) -> int:
+def fetch_alertas_count(
+    train_id: str | None = None,
+    fecha: str | None = None,
+    last_hours: int | None = None,
+) -> int:
     """Retorna el total de alertas. Filtra por train_id y/o fecha si se indican."""
     table_name = get_alertas_table_name()
     ts_col = _resolve_timestamp_col(
@@ -606,6 +620,10 @@ def fetch_alertas_count(train_id: str | None = None, fecha: str | None = None) -
     if fecha:
         conditions.append(f"CAST({ts_col} AS DATE) = :fecha_param")
         params.append({"name": "fecha_param", "value": fecha, "type": "STRING"})
+    if last_hours is not None:
+        if last_hours < 1:
+            raise ValueError("last_hours debe ser >= 1.")
+        conditions.append(f"{ts_col} >= CURRENT_TIMESTAMP() - INTERVAL {int(last_hours)} HOURS")
 
     train_filter = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     if not params:
