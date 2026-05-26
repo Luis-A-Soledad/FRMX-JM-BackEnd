@@ -443,6 +443,12 @@ def fetch_email_alerts_operational_rows(
         "crew_eng_name",
         "maquinista",
     )
+    nombre_alerta_col = _first_existing(available, "nombre_alerta")
+    nombre_alerta_expr = (
+        f"FIRST_VALUE({nombre_alerta_col}) OVER (PARTITION BY train_id ORDER BY {ts_col} DESC) AS nombre_alerta"
+        if nombre_alerta_col
+        else "CAST(NULL AS STRING) AS nombre_alerta"
+    )
 
     conditions: list[str] = []
     params: list[dict[str, str]] = []
@@ -470,6 +476,7 @@ def fetch_email_alerts_operational_rows(
         f"{mile_start_expr}, "
         f"{mile_end_expr}, "
         f"{crew_expr}, "
+        f"{nombre_alerta_expr}, "
         f"COUNT(*) OVER (PARTITION BY train_id) AS alert_count, "
         f"ROW_NUMBER() OVER (PARTITION BY train_id ORDER BY {ts_col} DESC) AS rn "
         f"FROM {table_name} "
@@ -478,7 +485,7 @@ def fetch_email_alerts_operational_rows(
     # Keep only one row per train_id (the latest)
     query = (
         f"SELECT train_id, asset_id, last_event, id_alerta, titulo, "
-        f"descripcion, region, distrito, maquinista, "
+        f"descripcion, region, distrito, maquinista, nombre_alerta, "
         f"detail_mile_post_at_start, detail_mile_post_at_end, alert_count "
         f"FROM ({query}) sub "
         f"WHERE rn = 1 "

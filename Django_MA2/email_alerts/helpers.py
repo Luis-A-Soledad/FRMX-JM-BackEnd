@@ -247,8 +247,12 @@ def build_alerta_response(
 
     id_val = _normalize_alert_id(normalized.get("id"))
 
-    titulo = _safe_str(normalized.get("titulo") or normalized.get("ultimaAlerta"), "")
-    ultima_alerta = _safe_str(normalized.get("ultimaAlerta") or normalized.get("titulo"), "")
+    titulo = _safe_str(normalized.get("titulo") or normalized.get("ultimaAlerta"), "").strip()
+    nombre_alerta = _safe_str(normalized.get("nombre_alerta"), "").strip()
+    if nombre_alerta and titulo and nombre_alerta.casefold() != titulo.casefold():
+        ultima_alerta = f"{nombre_alerta} ({titulo})"
+    else:
+        ultima_alerta = nombre_alerta or titulo
 
     alerta = {
         "id": id_val,
