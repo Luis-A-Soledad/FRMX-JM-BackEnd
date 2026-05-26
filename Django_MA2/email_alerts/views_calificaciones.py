@@ -10,8 +10,7 @@ from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework_simplejwt.authentication import JWTAuthentication
-
+from api.authentication.stateless_jwt import StatelessJWTAuthentication
 from api.authentication.entra import EntraBearerAuthentication
 from api.permissions import IsAllowedSSORole
 
@@ -28,9 +27,11 @@ logger = logging.getLogger(__name__)
 
 
 def _calificaciones_authenticators():
+    authenticators = []
     if getattr(django_settings, "ENTRA_AUTH_ENABLED", False):
-        return [EntraBearerAuthentication(), JWTAuthentication()]
-    return [JWTAuthentication()]
+        authenticators.append(EntraBearerAuthentication())
+    authenticators.append(StatelessJWTAuthentication())
+    return authenticators
 
 
 def _error_response(code: str, message: str, details: dict | None = None, http_status: int = 400):
