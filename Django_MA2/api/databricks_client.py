@@ -94,6 +94,9 @@ class DatabricksClient:
         self,
         question: str,
         session_id: str,
+        user_id: str,
+        email: str,
+        name: str,
         role: str,
         region: str | None = None,
     ) -> dict[str, Any]:
@@ -103,6 +106,9 @@ class DatabricksClient:
         Args:
             question: Pregunta del usuario
             session_id: ID de sesión
+            user_id: ID del usuario
+            email: Correo electrónico del usuario
+            name: Nombre del usuario
             role: Rol del usuario (jefe_maquinistas, cco, otro)
             region: Región del usuario (solo aplica para jefe_maquinistas)
 
@@ -121,6 +127,9 @@ class DatabricksClient:
                 {
                     "question": question,
                     "session_id": session_id,
+                    "user_id": user_id,
+                    "email": email,
+                    "name": name,
                     "role": role,
                     "region": region,
                 }
@@ -128,6 +137,7 @@ class DatabricksClient:
         }
 
         print(f"[DATABRICKS_CLIENT] Llamando endpoint: {self.endpoint_url}")
+        print(f"[DATABRICKS_CLIENT] name: {name}, email: {email}")
         print(f"[DATABRICKS_CLIENT] role: {role}, region: {region}")
 
         try:
@@ -148,6 +158,9 @@ class DatabricksClient:
                     "last_calificador_table":None,
                     "last_error": response.text[:500],
                     "session_id": session_id,
+                    "user_id": user_id,
+                    "email": email,
+                    "name": name,
                     "role": role,
                     "region": region,
                 }
@@ -165,6 +178,9 @@ class DatabricksClient:
                 "last_calificador_table": predictions.get("last_calificador_table"),
                 "last_error": predictions.get("last_error", ""),
                 "session_id": predictions.get("session_id", session_id),
+                "user_id": predictions.get("user_id", user_id),
+                "email": predictions.get("email", email),
+                "name": predictions.get("name", name),
                 "role": predictions.get("role", role),
                 "region": predictions.get("region", region),
             }
@@ -179,6 +195,9 @@ class DatabricksClient:
                 "last_calificador_table": None,
                 "last_error": "Timeout",
                 "session_id": session_id,
+                "user_id": user_id,
+                "email": email,
+                "name": name,
                 "role": role,
                 "region": region,
             }
@@ -193,6 +212,9 @@ class DatabricksClient:
                 "last_calificador_table": None,
                 "last_error": str(e),
                 "session_id": session_id,
+                "user_id": user_id,
+                "email": email,
+                "name": name,
                 "role": role,
                 "region": region,
             }
@@ -214,7 +236,10 @@ def delete_session(session_id: str) -> bool:
 def run_agent(
     question: str,
     session_id: str,
+    user_id: str | None,
+    email: str | None,
+    name: str | None,
     role: str,
-    region: str | None = None,
+    region: str | None = None
 ) -> dict[str, Any]:
-    return _client.run_agent(question, session_id, role, region)
+    return _client.run_agent(question, session_id,user_id, email, name, role, region)
