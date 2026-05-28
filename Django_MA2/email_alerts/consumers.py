@@ -12,6 +12,7 @@ from .group_names import safe_train_group_name
 
 logger = logging.getLogger(__name__)
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DEFAULT_TIPOS_ALERTA = ("Alerta_01", "Alerta_02", "Alerta_03", "Alerta_06")
 # Grupo global al que todos los clientes se suscriben automáticamente
 GROUP_ALL = "alertas_all"
 
@@ -32,6 +33,29 @@ class AlertasConsumer(AsyncJsonWebsocketConsumer):
         self._train_groups: set[str] = set()
         self._fecha_filter: str | None = None
         self._train_id_filter: str | None = None
+        self._tipos_alerta_filter: set[str] = set()
+
+    @property
+    def default_tipos_alerta_filter(self) -> tuple[str, ...]:
+        """Permite que subclases definan filtros por defecto de tipo alerta."""
+        return tuple()
+
+    @staticmethod
+    def _parse_tipos_alerta(parsed_qs: dict[str, list[str]]) -> list[str]:
+        raw_values: list[str] = []
+        raw_values.extend(parsed_qs.get("tipo_alerta", []))
+        raw_values.extend(parsed_qs.get("tipos_alerta", []))
+
+        parsed: list[str] = []
+        seen: set[str] = set()
+        for raw in raw_values:
+            for token in str(raw).split(","):
+                value = token.strip()
+                if not value or value in seen:
+                    continue
+                seen.add(value)
+                parsed.append(value)
+        return parsed
 
     @staticmethod
     def _parse_event_date(value) -> str | None:
@@ -68,13 +92,31 @@ class AlertasConsumer(AsyncJsonWebsocketConsumer):
         train_str = str(train_id).strip()
         return train_str if train_str else None
 
+    def _extract_row_tipo_alerta(self, row: dict) -> str | None:
+        extras = row.get("extras") if isinstance(row.get("extras"), dict) else {}
+        tipo_alerta = (
+            row.get("tipo_alerta")
+            or row.get("tipoAlerta")
+            or row.get("type")
+            or extras.get("tipo_alerta")
+            or extras.get("tipoAlerta")
+        )
+        if tipo_alerta is None:
+            return None
+        tipo_str = str(tipo_alerta).strip()
+        return tipo_str if tipo_str else None
+
     def _apply_filters(self, payload: dict, filter_by_train_id: bool = False) -> dict | None:
         """Aplica filtros a un payload.
         
         Por defecto, solo filtra por fecha.
         Si filter_by_train_id=True, también filtra por train_id.
         """
-        filters_active = self._fecha_filter or (filter_by_train_id and self._train_id_filter)
+        filters_active = (
+            self._fecha_filter
+            or self._tipos_alerta_filter
+            or (filter_by_train_id and self._train_id_filter)
+        )
         if not filters_active:
             return payload
 
@@ -85,6 +127,12 @@ class AlertasConsumer(AsyncJsonWebsocketConsumer):
         filtered = rows
         if self._fecha_filter:
             filtered = [row for row in filtered if self._extract_row_date(row) == self._fecha_filter]
+        if self._tipos_alerta_filter:
+            filtered = [
+                row
+                for row in filtered
+                if self._extract_row_tipo_alerta(row) in self._tipos_alerta_filter
+            ]
         if filter_by_train_id and self._train_id_filter:
             filtered = [row for row in filtered if self._extract_row_train_id(row) == self._train_id_filter]
         if not filtered:
@@ -117,13 +165,22 @@ class AlertasConsumer(AsyncJsonWebsocketConsumer):
         if isinstance(train_id, str) and train_id.strip():
             self._train_id_filter = train_id.strip()
 
+        tipos_alerta = self._parse_tipos_alerta(parsed_qs)
+        if tipos_alerta:
+            self._tipos_alerta_filter = set(tipos_alerta)
+        else:
+            defaults = [x for x in self.default_tipos_alerta_filter if str(x).strip()]
+            if defaults:
+                self._tipos_alerta_filter = set(defaults)
+
         await self.channel_layer.group_add(GROUP_ALL, self.channel_name)
         await self.accept()
         logger.info(
-            "WS conectado: %s (fecha=%s, train_id=%s)",
+            "WS conectado: %s (fecha=%s, train_id=%s, tipos_alerta=%s)",
             self.channel_name,
             self._fecha_filter,
             self._train_id_filter,
+            sorted(self._tipos_alerta_filter) if self._tipos_alerta_filter else None,
         )
 
     async def disconnect(self, close_code):
@@ -180,6 +237,9 @@ class AlertasConsumer(AsyncJsonWebsocketConsumer):
         # snapshot_alertas: nunca filtra por train_id (solo por fecha si existe)
         elif event_type == "snapshot_alertas":
             payload = self._apply_filters(incoming, filter_by_train_id=False)
+        # snapshot_alertas_filtradas: nunca filtra por train_id (solo por fecha/tipo si existe)
+        elif event_type == "snapshot_alertas_filtradas":
+            payload = self._apply_filters(incoming, filter_by_train_id=False)
         # delta_alertas: nunca filtra por train_id (solo por fecha si existe)
         elif event_type == "delta_alertas":
             payload = self._apply_filters(incoming, filter_by_train_id=False)
@@ -190,3 +250,11 @@ class AlertasConsumer(AsyncJsonWebsocketConsumer):
         if payload is None:
             return
         await self.send_json(payload)
+
+
+class AlertasFiltradasConsumer(AlertasConsumer):
+    """Consumer con filtro default por tipos de alerta prioritarios."""
+
+    @property
+    def default_tipos_alerta_filter(self) -> tuple[str, ...]:
+        return _DEFAULT_TIPOS_ALERTA

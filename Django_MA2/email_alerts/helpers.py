@@ -176,16 +176,6 @@ def _prioridad_label(value: Any) -> str | None:
     return "Baja"
 
 
-def _compose_descripcion(row: dict[str, Any]) -> str:
-    """Genera descripcion a partir de campos del row normalizado."""
-    loco = _safe_str(row.get("locomotora"), "?")
-    reg = _safe_str(row.get("region"), "?")
-    dist = _safe_str(row.get("distrito"), "?")
-    pk_ini = _safe_str(row.get("pkInicio"), "?")
-    pk_fin = _safe_str(row.get("pkFin"), "?")
-    return f"Locomotora {loco}, Región {reg}, Distrito {dist}, PK {pk_ini}–{pk_fin}."
-
-
 def _derive_estado(row: dict[str, Any]) -> str:
     """Calcula estado: ACTIVA si alertasActivas > 0, sino INACTIVA."""
     if "estado" in row and row["estado"] is not None:
@@ -261,7 +251,7 @@ def build_alerta_response(
         "nombre_alerta": normalized.get("nombre_alerta"),
         "AFT": normalized.get("AFT"),
         "train_id": normalized.get("train_id"),
-        "descripcion": _safe_str(normalized.get("descripcion"), "") or _compose_descripcion(normalized),
+        "descripcion": normalized.get("descripcion") or None,
         "estado": _derive_estado(normalized),
         "fechaCreacion": fecha_creacion,
         "alertasActivas": _safe_number(normalized.get("alertasActivas"), 0),
