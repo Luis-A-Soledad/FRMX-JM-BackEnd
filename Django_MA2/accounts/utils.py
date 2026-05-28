@@ -112,6 +112,18 @@ def _apply_temporary_role_bypass(
     return user_context
 
 
+def parse_roles(_roles):
+    roles = []
+
+    if isinstance(_roles, str):
+        roles: list[str] = [_roles] if _roles.strip() else []
+    elif isinstance(_roles, list):
+        roles = [str(r).strip() for r in _roles if str(r).strip()]
+    else:
+        roles = []
+
+    return roles
+
 def build_user_context(
     user: AbstractBaseUser | AnonymousUser,
     request: HttpRequest | None = None,
@@ -130,34 +142,52 @@ def build_user_context(
     required_scope = str(getattr(settings, "ENTRA_REQUIRED_SCOPE", "Api.access")).strip()
     required_scope_norm = required_scope.lower()
 
+    auth_claims = getattr(request, "auth", None)
+    if isinstance(auth_claims, dict):
+        normalized_claims = auth_claims
+    elif hasattr(auth_claims, "payload"):
+        normalized_claims = getattr(auth_claims, "payload", {}) or {}
+    else:
+        normalized_claims = {}
+
+    if not isinstance(normalized_claims, dict):
+        normalized_claims = {}
+
+    auth_claims = normalized_claims
+    has_claims_context = bool(auth_claims)
+    backend_token = bool(
+        auth_claims
+        and auth_claims.get("role")
+        and auth_claims.get("capabilities") is not None
+    )
+
     if not user.is_authenticated:
         context = {
             "user_id": None,
-            "email": None,
-            "name": None,
-            "oid": None,
+            "email": auth_claims.get("email") or None,
+            "name": auth_claims.get("name") or None,
+            "oid": auth_claims.get("oid"),
             "roles": [],
             "scp": [],
             "access_level": 0,
             "capabilities": ["VIEW_BASIC"],
-            "allowed": False,
+            "allowed": bool(backend_token),
             "role": ROLE_ANON,
             "scopes": {"fleets": [], "regions": []},
         }
+        if backend_token:
+            context["role"] = str(auth_claims.get("role")).upper()
+            context["roles"] = parse_roles([str(auth_claims.get("role"))])
+            context["capabilities"] = list(auth_claims.get("capabilities") or ["VIEW_BASIC"])
+            context["allowed"] = True
+            if auth_claims.get("scp"):
+                context["scp"] = str(auth_claims.get("scp")).split()
         return _apply_temporary_role_bypass(context, request)
 
-    auth_claims = getattr(request, "auth", None)
-    if not isinstance(auth_claims, dict):
-        auth_claims = {}
-    has_claims_context = bool(auth_claims)
-
     claims_roles = auth_claims.get("roles") or []
-    if isinstance(claims_roles, str):
-        roles: list[str] = [claims_roles] if claims_roles.strip() else []
-    elif isinstance(claims_roles, list):
-        roles = [str(r).strip() for r in claims_roles if str(r).strip()]
-    else:
-        roles = []
+    if not claims_roles and auth_claims.get("role"):
+        claims_roles = [auth_claims.get("role")]
+    roles = parse_roles(claims_roles)
 
     scp_raw = str(auth_claims.get("scp") or "").strip()
     scp_list = scp_raw.split() if scp_raw else []
@@ -165,31 +195,43 @@ def build_user_context(
     access_level, capabilities, effective_role = resolve_access_level(roles)
 
     # Compatibilidad con el flujo previo para usuarios autenticados sin claims roles.
-    role = effective_role
+    role = effective_role or getattr(user, "role", None) or auth_claims.get("role")
     if not role:
-        try:
-            profile = user.profile  # type: ignore[union-attr]
-            role = str(profile.role.name)
-        except ObjectDoesNotExist:
+        profile = getattr(user, "profile", None)
+        if profile is not None:
+            try:
+                role = str(profile.role.name)
+            except ObjectDoesNotExist:
+                role = ROLE_UNKNOWN
+        else:
             role = ROLE_UNKNOWN
 
     email = getattr(user, "email", None) or user.get_username()  # type: ignore[union-attr]
-    name = auth_claims.get("name") or getattr(user, "first_name", "") or None
+    name = auth_claims.get("name") or getattr(user, "name", "") or getattr(user, "first_name", "") or None
     oid = auth_claims.get("oid")
-    if required_scope and has_claims_context:
+    if backend_token:
+        allowed = True
+        if auth_claims.get("scp"):
+            scp_list = str(auth_claims.get("scp")).split()
+            scp_norm = [s.lower() for s in scp_list]
+    elif required_scope and has_claims_context:
         allowed = required_scope_norm in scp_norm
     else:
         allowed = True
 
+    if backend_token and not roles and auth_claims.get("role"):
+        roles = [str(auth_claims.get("role"))]
+        access_level, capabilities, role = resolve_access_level(roles)
+
     context = {
-        "user_id": user.pk,
+        "user_id": getattr(user, "pk", None),
         "email": email,
         "name": name,
         "oid": oid,
         "roles": roles,
         "scp": scp_list,
         "access_level": access_level,
-        "capabilities": capabilities,
+        "capabilities": auth_claims.get("capabilities") or capabilities,
         "allowed": allowed,
         "role": role,
         "scopes": {"fleets": [], "regions": []},
