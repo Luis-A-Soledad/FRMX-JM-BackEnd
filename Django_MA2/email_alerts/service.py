@@ -220,30 +220,6 @@ def _resolve_connection() -> tuple[str, str, str, str]:
     return host, warehouse_id, token, table_name
 
 
-def _get_catalog_name() -> str:
-    """Resuelve catálogo para TVFs; usa CATALOG o deriva desde EMAIL_ALERTS_TABLE."""
-    catalog = os.getenv("CATALOG", "").strip()
-    if catalog:
-        return catalog
-
-    table_name = _get_env_or_kv(
-        env_names=["EMAIL_ALERTS_TABLE"],
-        kv_secret_names=[
-            os.getenv("EMAIL_ALERTS_TABLE_SECRET_NAME", "").strip(),
-            "EMAIL-ALERTS-TABLE",
-        ],
-    ) or DEFAULT_TABLE_NAME
-
-    parts = [p for p in table_name.split(".") if p]
-    if len(parts) >= 3:
-        return parts[0]
-
-    raise RuntimeError(
-        "No se pudo resolver el catalogo Databricks. Configure CATALOG o "
-        "EMAIL_ALERTS_TABLE con formato catalog.schema.tabla."
-    )
-
-
 def _execute_statement(
     query: str,
     *,
@@ -864,10 +840,10 @@ def fetch_calificaciones_maquinista(
     Retorna lista de dicts con: id_maquinista, nombre_maquinista,
     Score_Promedio, Alertas_Acumuladas, Frecuencia_Evento, Alerta_Comun.
     """
-    catalog = _get_catalog_name()
+    catalog = os.getenv("CATALOG", '').strip()
 
     query = (
-        "SELECT * FROM " + catalog + ".gold.fn_calificaciones_maquinista_v2("
+        "SELECT * FROM " + catalog + ".gold.fn_calificaciones_maquinista("
         ":p_fecha_inicio, :p_fecha_fin, :p_email_jefe)"
     )
     parameters = [
@@ -888,7 +864,7 @@ def fetch_frecuencia_alertas_maquinista(
 
     Retorna lista de dicts con: Prioridad, Alerta, Frecuencia.
     """
-    catalog = _get_catalog_name()
+    catalog = os.getenv("CATALOG", '').strip()
     query = (
         "SELECT * FROM " + catalog + ".gold.fn_frecuencia_alertas_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
@@ -911,7 +887,7 @@ def fetch_resumen_semanal_maquinista(
 
     Retorna lista de dicts con: Score, Total_Alertas, Distrito, Fecha.
     """
-    catalog = _get_catalog_name()
+    catalog = os.getenv("CATALOG", '').strip()
 
     query = (
         "SELECT * FROM " + catalog + ".gold.fn_resumen_semanal_maquinista("
@@ -936,7 +912,7 @@ def fetch_viajes_maquinista(
     Retorna lista de dicts con: train_id, ponderation, event_count, date,
     region, district, alerts (array de structs con priority, message, count).
     """
-    catalog = _get_catalog_name()
+    catalog = os.getenv("CATALOG", '').strip()
     query = (
         "SELECT * FROM " + catalog + ".gold.fn_viajes_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
@@ -960,7 +936,7 @@ def fetch_to_maquinista(
     Retorna lista de dicts con: train_id, date, improper,
     to_data (array de structs con to_value, pk_inicio, pk_fin, distrito, region, hora).
     """
-    catalog = _get_catalog_name()
+    catalog = os.getenv("CATALOG", '').strip()
     query = (
         "SELECT * FROM " + catalog + ".gold.fn_to_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
@@ -986,7 +962,7 @@ def fetch_comparativa_maquinistas(
     Retorna lista de dicts con: Etiqueta, nombre_maquinista, Score,
     Total_Alertas, Distrito, Fecha.
     """
-    catalog = _get_catalog_name()
+    catalog = os.getenv("CATALOG", '').strip()
     if id_maquinista_opcional is not None:
         query = (
             "SELECT * FROM " + catalog + ".gold.fn_comparativa_maquinistas("
