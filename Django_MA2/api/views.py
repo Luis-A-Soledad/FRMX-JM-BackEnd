@@ -101,16 +101,16 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .authentication.entra import EntraBearerAuthentication
+from .authentication.stateless_jwt import StatelessJWTAuthentication
 from .permissions import IsAllowedSSORole
 from .serializers import (
     ChatRequestSerializer,
     ChatResponseSerializer,
     SSOTokenExchangeSerializer,
 )
-from accounts.utils import build_user_context
+from accounts.utils import build_user_context, resolve_access_level, parse_roles
 from rest_framework_simplejwt.tokens import AccessToken
 
 
@@ -157,16 +157,13 @@ def _entra_first_authenticators():
     """Build authenticator list at request time so settings overrides work.
 
     Order:
-    1. EntraBearerAuthentication (if ENTRA_AUTH_ENABLED).
-    2. JWTAuthentication — only when ENTRA_AUTH_ENABLED=False (dev mode).
-       Excluded when Entra is active to prevent SimpleJWT from rejecting
-       valid Entra Bearer tokens with 'token_not_valid'.
+    1. EntraBearerAuthentication (when Entra is enabled).
+    2. StatelessJWTAuthentication as a fallback for the backend-issued JWT.
     """
     authenticators = []
     if getattr(django_settings, "ENTRA_AUTH_ENABLED", False):
         authenticators.append(EntraBearerAuthentication())
-    else:
-        authenticators.append(JWTAuthentication())
+    authenticators.append(StatelessJWTAuthentication())
     return authenticators
 
 
@@ -223,7 +220,7 @@ class ChatView(APIView):
         try:
             result = run_agent(
                 question=question,
-                role = user_context["role"],
+                role=user_context["role"],
                 session_id=session_id
             )
         except Exception as e:
@@ -613,6 +610,7 @@ class SSOCallbackView(APIView):
         # 4. Decodificar ID token de Microsoft
         # -----------------------------
         id_token = tokens.get("id_token")
+        ms_token = tokens.get("access_token")
 
         if not id_token:
             return Response(
@@ -621,18 +619,23 @@ class SSOCallbackView(APIView):
             )
 
         # en producción valida la firma correctamente (JWKS)
-        decoded = jwt.decode(id_token, options={"verify_signature": False})
+        decoded = jwt.decode(ms_token, options={"verify_signature": False})
 
-        email = decoded.get("preferred_username") or decoded.get("email")
+        email = decoded.get("email")
         name = decoded.get("name")
 
         # -----------------------------
         # 5. Generar el JWT
         # -----------------------------        
+        decoded_roles = decoded.get("roles", [])
+        decoded_roles = parse_roles(decoded_roles)
+        access_level, capabilities, effective_role = resolve_access_level(decoded_roles)
         access_token = AccessToken()
         access_token["email"] = email
         access_token["name"] = name
-        access_token["roles"] = decoded.get("roles", [])
+        access_token["role"] = effective_role
+        access_token["capabilities"] = capabilities
+        access_token["scopes"] = access_level
         token_str = str(access_token)
 
         # -----------------------------
@@ -694,7 +697,7 @@ class CheckSessionView(APIView):
                 "user": {
                     "email": decoded.get("email"),
                     "name": decoded.get("name"),
-                    "roles": decoded.get("roles", []),
+                    "role": decoded.get("role"),
                 }
             }
         )

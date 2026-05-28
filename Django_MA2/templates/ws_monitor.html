@@ -64,6 +64,9 @@
         .input-group { display: flex; gap: 6px; margin-bottom: 8px; }
         .input-group input { flex: 1; padding: 8px 10px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #e2e8f0; font-size: 13px; }
         .input-group .btn { width: auto; margin: 0; padding: 8px 12px; }
+        .select-group { margin-bottom: 10px; }
+        .select-group select { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #e2e8f0; font-size: 13px; }
+        .endpoint-label { font-size: 11px; color: #94a3b8; line-height: 1.4; word-break: break-all; }
 
         /* Log */
         .log-panel { flex: 1; overflow-y: auto; padding: 0 16px 16px; }
@@ -100,6 +103,9 @@
                 </button>
                 <button class="tab-btn" onclick="switchTab('list')">
                     📋 /api/alertas/
+                </button>
+                <button class="tab-btn" onclick="switchTab('loco-filtradas')">
+                    🧪 /api/alertas/alertas-por-loco-principal-filtradas/
                 </button>
             </div>
 
@@ -140,11 +146,28 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Tab 3: snapshot_alertas_filtradas (/api/alertas/alertas-por-loco-principal-filtradas/) -->
+            <div class="tab-content alerts-panel" id="tab-loco-filtradas">
+                <h2>
+                    snapshot_alertas_filtradas — agrupado por tren (01/02/03/06)
+                    <span class="refresh-indicator" id="refreshIndicatorLocoFiltered"></span>
+                    <button onclick="clearLocoFiltered()" style="margin-left:auto;font-size:11px;padding:3px 10px;border:1px solid #475569;border-radius:4px;background:#1e293b;color:#94a3b8;cursor:pointer;">Limpiar</button>
+                </h2>
+                <div id="alertsFilteredTable">
+                    <div class="empty-state">
+                        <div class="icon">📡</div>
+                        <p>Conectando al WebSocket...</p>
+                        <p style="margin-top:8px; font-size:13px;">Las alertas filtradas aparecerán automáticamente cada 10 segundos</p>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="sidebar">
             <h3>Conexión</h3>
             <div class="controls">
+                <div class="endpoint-label" id="wsEndpointLabel"></div>
                 <button class="btn btn-green" id="btnConnect" onclick="wsConnect()">Conectar</button>
                 <button class="btn btn-red" id="btnDisconnect" onclick="wsDisconnect()" disabled>Desconectar</button>
             </div>
@@ -178,6 +201,7 @@
                 <div class="stat">Pushes: <span class="stat-value" id="msgCount">0</span></div>
                 <div class="stat">Trenes: <span class="stat-value" id="trainCount">0</span></div>
                 <div class="stat">Items /api: <span class="stat-value" id="listCount">0</span></div>
+                <div class="stat">Trenes filtrados: <span class="stat-value" id="trainFilteredCount">0</span></div>
                 <div class="stat">Último: <span class="stat-value" id="lastUpdate">—</span></div>
             </div>
         </div>
@@ -189,18 +213,34 @@
         let autoPollTimer = null;
         const subs = new Set();
         const BASE = `${location.protocol}//${location.hostname || 'localhost'}:${location.port || '8000'}`;
+        const WS_BASE = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname || 'localhost'}:${location.port || '8000'}`;
         
         // Lee query params de la URL del monitor y los pasa al WebSocket
         const urlParams = new URLSearchParams(location.search);
         const queryString = location.search ? location.search : '';
-        const WS_URL = `ws://${location.hostname || 'localhost'}:${location.port || '8000'}/ws/alertas/${queryString}`;
         const DEBUG_URL = `${BASE}/api/alertas/debug-broadcast/`;
+
+        function getWsPath() {
+            return '/ws/alertas/';
+        }
+
+        function buildWsUrl() {
+            return `${WS_BASE}${getWsPath()}${queryString}`;
+        }
+
+        function updateWsEndpointLabel() {
+            const label = document.getElementById('wsEndpointLabel');
+            if (!label) return;
+            label.textContent = `Endpoint activo: ${buildWsUrl()}`;
+        }
 
         // ── Stores acumuladores ──────────────────────────────────────────
         // Tab 1: Map<train_id, row> — una fila por tren, se actualiza (upsert)
         const locoStore = new Map();
         // Tab 2: Map<id, row> — alertas individuales, se agregan (prepend+dedup)
         const listStore = new Map();
+        // Tab 3: Map<train_id, row> — snapshot filtrado por tipo_alerta
+        const locoFilteredStore = new Map();
         let lastListPag = null;
 
         /* ── Logging ─────────────────────────────── */
@@ -223,9 +263,11 @@
         /* ── WebSocket ───────────────────────────── */
         function wsConnect() {
             if (ws && ws.readyState === WebSocket.OPEN) return;
+            const wsUrl = buildWsUrl();
             setStatus('connecting');
-            log(`Conectando a ${WS_URL}...`);
-            ws = new WebSocket(WS_URL);
+            updateWsEndpointLabel();
+            log(`Conectando a ${wsUrl}...`);
+            ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
                 setStatus('connected');
@@ -252,6 +294,17 @@
                     }
                     renderTable();
                     log(`← snapshot_alertas: ${data.count} trenes (+${newCount} nuevos, ${locoStore.size} total)`, 'received');
+                } else if (data.event === 'snapshot_alertas_filtradas' && Array.isArray(data.data)) {
+                    document.getElementById('refreshIndicatorLocoFiltered').textContent = `(actualizado ${new Date().toLocaleTimeString()})`;
+                    let newCount = 0;
+                    for (const row of data.data) {
+                        if (row.train_id) {
+                            if (!locoFilteredStore.has(row.train_id)) newCount++;
+                            locoFilteredStore.set(row.train_id, row);
+                        }
+                    }
+                    renderFilteredLocoTable();
+                    log(`← snapshot_alertas_filtradas: ${data.count} trenes (+${newCount} nuevos, ${locoFilteredStore.size} total)`, 'received');
                 } else if (data.event === 'snapshot_alertas_list' && Array.isArray(data.data)) {
                     document.getElementById('refreshIndicatorList').textContent = `(actualizado ${new Date().toLocaleTimeString()})`;
                     // Prepend+dedup: agregar alertas nuevas al inicio del historial
@@ -297,7 +350,7 @@
         /* ── Tab switching ── */
         function switchTab(name) {
             document.querySelectorAll('.tab-btn').forEach((b, i) => {
-                b.classList.toggle('active', ['loco','list'][i] === name);
+                b.classList.toggle('active', ['loco','list','loco-filtradas'][i] === name);
             });
             document.querySelectorAll('.tab-content').forEach(el => {
                 el.classList.toggle('active', el.id === `tab-${name}`);
@@ -317,6 +370,12 @@
             renderListTable();
             document.getElementById('refreshIndicatorList').textContent = '';
             log('Historial lista limpiado', 'sent');
+        }
+        function clearLocoFiltered() {
+            locoFilteredStore.clear();
+            renderFilteredLocoTable();
+            document.getElementById('refreshIndicatorLocoFiltered').textContent = '';
+            log('Historial loco filtrado limpiado', 'sent');
         }
 
         /* ── Render tabla snapshot_alertas (alertas-por-loco-principal) ── */
@@ -352,7 +411,7 @@
                     <td><strong>${r.train_id || '—'}</strong></td>
                     <td>${r.asset_id || '—'}</td>
                     <td>${r.maquinista || '—'}</td>
-                    <td>${r.titulo || '—'}</td>
+                    <td>${r.nombre_alerta || r.titulo || '—'}</td>
                     <td>${(r.descripcion || '').substring(0, 60)}</td>
                     <td>${r.region || r.detail_location_at_start || '—'}</td>
                     <td>${r.distrito || r.detail_location_at_end || '—'}</td>
@@ -412,7 +471,7 @@
                     <td><strong>${extras.train_id || '—'}</strong></td>
                     <td>${r.locomotora || '—'}</td>
                     <td>${r.maquinista || '—'}</td>
-                    <td>${r.titulo || r.ultimaAlerta || '—'}</td>
+                    <td>${r.ultimaAlerta || r.nombre_alerta || r.titulo || '—'}</td>
                     <td>${(r.descripcion || '').substring(0, 60)}</td>
                     <td>${r.estado || '—'}</td>
                     <td>${r.prioridad || '—'}</td>
@@ -425,6 +484,54 @@
             }
             html += '</tbody></table>';
             document.getElementById('alertsListTable').innerHTML = html;
+        }
+
+        function renderFilteredLocoTable() {
+            const rows = [...locoFilteredStore.values()];
+            document.getElementById('trainFilteredCount').textContent = rows.length;
+            if (!rows.length) {
+                document.getElementById('alertsFilteredTable').innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon">📭</div>
+                        <p>Sin alertas filtradas en este momento</p>
+                    </div>`;
+                return;
+            }
+
+            let html = `<table>
+                <thead><tr>
+                    <th>Train ID</th>
+                    <th>Asset ID</th>
+                    <th>Maquinista</th>
+                    <th>Última alerta</th>
+                    <th>Tipo alerta</th>
+                    <th>Descripción</th>
+                    <th>Región</th>
+                    <th>Distrito</th>
+                    <th>PK Inicio</th>
+                    <th>PK Fin</th>
+                    <th># Alertas</th>
+                    <th>Último evento</th>
+                </tr></thead><tbody>`;
+
+            for (const r of rows) {
+                html += `<tr class="flash">
+                    <td><strong>${r.train_id || '—'}</strong></td>
+                    <td>${r.asset_id || '—'}</td>
+                    <td>${r.maquinista || '—'}</td>
+                    <td>${r.nombre_alerta || r.titulo || '—'}</td>
+                    <td>${r.tipo_alerta || '—'}</td>
+                    <td>${(r.descripcion || '').substring(0, 60)}</td>
+                    <td>${r.region || r.detail_location_at_start || '—'}</td>
+                    <td>${r.distrito || r.detail_location_at_end || '—'}</td>
+                    <td>${r.detail_mile_post_at_start || '—'}</td>
+                    <td>${r.detail_mile_post_at_end || '—'}</td>
+                    <td style="text-align:center; font-weight:700;">${r.alert_count || 0}</td>
+                    <td>${formatTs(r.last_event)}</td>
+                </tr>`;
+            }
+            html += '</tbody></table>';
+            document.getElementById('alertsFilteredTable').innerHTML = html;
         }
 
         function formatTs(ts) {
@@ -480,6 +587,8 @@
         document.getElementById('trainInput').addEventListener('keydown', e => {
             if (e.key === 'Enter') subscribeTrain();
         });
+
+        updateWsEndpointLabel();
 
         // Auto-conectar al abrir
         wsConnect();

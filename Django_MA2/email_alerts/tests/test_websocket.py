@@ -249,6 +249,63 @@ class AlertasConsumerTests(TestCase):
 
         await communicator.disconnect()
 
+    async def test_connect_with_tipos_alerta_filters_rows(self):
+        """Con tipos_alerta en query, filtra filas por tipo_alerta en snapshot_alertas."""
+        communicator = _make_communicator("/ws/alertas/?tipos_alerta=Alerta_01,Alerta_03")
+        await communicator.connect()
+
+        channel_layer = get_channel_layer()
+        await channel_layer.group_send(
+            GROUP_ALL,
+            {
+                "type": "alerta.nueva",
+                "data": {
+                    "event": "snapshot_alertas",
+                    "data": [
+                        {"train_id": "TRN-1", "tipo_alerta": "Alerta_01"},
+                        {"train_id": "TRN-2", "tipo_alerta": "Alerta_02"},
+                        {"train_id": "TRN-3", "tipo_alerta": "Alerta_03"},
+                    ],
+                    "count": 3,
+                },
+            },
+        )
+
+        response = await communicator.receive_json_from()
+        self.assertEqual(response["event"], "snapshot_alertas")
+        self.assertEqual(response["count"], 2)
+        self.assertEqual(len(response["data"]), 2)
+        self.assertEqual({row["tipo_alerta"] for row in response["data"]}, {"Alerta_01", "Alerta_03"})
+        await communicator.disconnect()
+
+    async def test_filtered_endpoint_applies_default_tipo_alerta_filter(self):
+        """/ws/alertas/filtradas usa por defecto Alerta_01/02/03/06."""
+        communicator = _make_communicator("/ws/alertas/filtradas/")
+        await communicator.connect()
+
+        channel_layer = get_channel_layer()
+        await channel_layer.group_send(
+            GROUP_ALL,
+            {
+                "type": "alerta.nueva",
+                "data": {
+                    "event": "snapshot_alertas",
+                    "data": [
+                        {"train_id": "TRN-1", "tipo_alerta": "Alerta_01"},
+                        {"train_id": "TRN-2", "tipo_alerta": "Alerta_04"},
+                        {"train_id": "TRN-3", "tipo_alerta": "Alerta_06"},
+                    ],
+                    "count": 3,
+                },
+            },
+        )
+
+        response = await communicator.receive_json_from()
+        self.assertEqual(response["event"], "snapshot_alertas")
+        self.assertEqual(response["count"], 2)
+        self.assertEqual({row["tipo_alerta"] for row in response["data"]}, {"Alerta_01", "Alerta_06"})
+        await communicator.disconnect()
+
     async def test_broadcast_train_group_reaches_subscriber_only(self):
         """Un broadcast a train_8001 llega solo al cliente suscrito."""
         # Cliente 1: suscrito a train_8001
@@ -551,15 +608,137 @@ class PollerBroadcastEndToEndTests(TestCase):
         from email_alerts import tasks
         await asyncio.to_thread(tasks._poll_and_broadcast)
 
-        first_msg = await communicator.receive_json_from(timeout=2)
-        second_msg = await communicator.receive_json_from(timeout=2)
+        messages = [
+            await communicator.receive_json_from(timeout=2),
+            await communicator.receive_json_from(timeout=2),
+            await communicator.receive_json_from(timeout=2),
+        ]
 
-        list_msg = first_msg if first_msg.get("event") == "snapshot_alertas_list" else second_msg
+        list_msg = next((m for m in messages if m.get("event") == "snapshot_alertas_list"), None)
+        self.assertIsNotNone(list_msg)
         self.assertEqual(list_msg["event"], "snapshot_alertas_list")
         self.assertIn("pagination", list_msg)
         self.assertIn("links", list_msg)
         self.assertEqual(list_msg["pagination"]["totalItems"], 1)
         self.assertEqual(list_msg["data"][0]["id"], 101)
         self.assertEqual(list_msg["data"][0]["detail_speed_limit"], "80")
+
+        await communicator.disconnect()
+
+    @patch("email_alerts.tasks.fetch_alertas_since")
+    @patch("email_alerts.tasks.fetch_alertas_count")
+    @patch("email_alerts.tasks.fetch_alertas_page")
+    @patch("email_alerts.tasks.fetch_email_alerts_operational_rows")
+    async def test_poll_emits_snapshot_alertas_filtradas(
+        self,
+        mock_fetch_snapshot,
+        mock_fetch_page,
+        mock_fetch_count,
+        mock_fetch_delta,
+    ):
+        """El poller emite snapshot_alertas_filtradas para /alertas-por-loco-principal-filtradas/."""
+        mock_fetch_snapshot.return_value = [
+            {
+                "train_id": "TRN-8001",
+                "asset_id": "LOCO-5000",
+                "last_event": "2026-05-08T12:00:00Z",
+                "id_alerta": "101",
+                "titulo": "Exceso velocidad",
+                "descripcion": "Superó 80 km/h en PK 45",
+                "region": "Norte",
+                "distrito": "D-02",
+                "maquinista": "TEST",
+                "tipo_alerta": "Alerta_01",
+                "detail_mile_post_at_start": "45",
+                "detail_mile_post_at_end": "47",
+                "alert_count": 2,
+            },
+            {
+                "train_id": "TRN-9002",
+                "asset_id": "LOCO-6000",
+                "last_event": "2026-05-08T12:01:00Z",
+                "id_alerta": "102",
+                "titulo": "Otra alerta",
+                "descripcion": "No filtrada",
+                "region": "Sur",
+                "distrito": "D-05",
+                "maquinista": "TEST 2",
+                "tipo_alerta": "Alerta_05",
+                "detail_mile_post_at_start": "200",
+                "detail_mile_post_at_end": "201",
+                "alert_count": 1,
+            },
+        ]
+        mock_fetch_page.return_value = []
+        mock_fetch_count.return_value = 0
+        mock_fetch_delta.return_value = []
+
+        communicator = _make_communicator()
+        await communicator.connect()
+
+        from email_alerts import tasks
+        await asyncio.to_thread(tasks._poll_and_broadcast)
+
+        messages = [
+            await communicator.receive_json_from(timeout=2),
+            await communicator.receive_json_from(timeout=2),
+        ]
+        filtered_msg = next((m for m in messages if m.get("event") == "snapshot_alertas_filtradas"), None)
+
+        self.assertIsNotNone(filtered_msg)
+        self.assertEqual(filtered_msg["count"], 1)
+        self.assertEqual(filtered_msg["data"][0]["train_id"], "TRN-8001")
+        self.assertEqual(filtered_msg["data"][0]["tipo_alerta"], "Alerta_01")
+
+        await communicator.disconnect()
+
+    @patch("email_alerts.tasks.fetch_alertas_since")
+    @patch("email_alerts.tasks.fetch_alertas_count")
+    @patch("email_alerts.tasks.fetch_alertas_page")
+    @patch("email_alerts.tasks.fetch_email_alerts_operational_rows")
+    async def test_poll_localizes_snapshot_alertas_title_with_nombre_alerta(
+        self,
+        mock_fetch_snapshot,
+        mock_fetch_page,
+        mock_fetch_count,
+        mock_fetch_delta,
+    ):
+        """snapshot_alertas prioriza nombre_alerta para alinear título en español."""
+        mock_fetch_snapshot.return_value = [
+            {
+                "train_id": "TRN-8001",
+                "asset_id": "LOCO-5000",
+                "last_event": "2026-05-08T12:00:00Z",
+                "id_alerta": "101",
+                "titulo": "Overspeed",
+                "nombre_alerta": "Exceso de velocidad",
+                "descripcion": "Descripcion de prueba",
+                "region": "Norte",
+                "distrito": "D-02",
+                "maquinista": "TEST",
+                "tipo_alerta": "Alerta_01",
+                "detail_mile_post_at_start": "45",
+                "detail_mile_post_at_end": "47",
+                "alert_count": 1,
+            }
+        ]
+        mock_fetch_page.return_value = []
+        mock_fetch_count.return_value = 0
+        mock_fetch_delta.return_value = []
+
+        communicator = _make_communicator()
+        await communicator.connect()
+
+        from email_alerts import tasks
+        await asyncio.to_thread(tasks._poll_and_broadcast)
+
+        messages = [
+            await communicator.receive_json_from(timeout=2),
+            await communicator.receive_json_from(timeout=2),
+        ]
+        snapshot_msg = next((m for m in messages if m.get("event") == "snapshot_alertas"), None)
+
+        self.assertIsNotNone(snapshot_msg)
+        self.assertEqual(snapshot_msg["data"][0]["titulo"], "Exceso de velocidad")
 
         await communicator.disconnect()

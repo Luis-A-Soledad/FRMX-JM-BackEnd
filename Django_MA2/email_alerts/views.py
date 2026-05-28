@@ -32,6 +32,8 @@ class EmailAlertsOperationalView(APIView):
     def get(self, request):
         limit_param = request.query_params.get("limit")
         limit: int | None = None
+        only_last_12_hours_raw = request.query_params.get("only_last_12_hours", "true").lower()
+        only_last_12_hours = only_last_12_hours_raw in ("true", "1", "yes")
 
         if limit_param is not None:
             try:
@@ -49,7 +51,11 @@ class EmailAlertsOperationalView(APIView):
                 )
 
         try:
-            rows = fetch_email_alerts_operational_rows(limit=limit, only_today=True)
+            rows = fetch_email_alerts_operational_rows(
+                limit=limit,
+                only_today=not only_last_12_hours,
+                last_hours=12 if only_last_12_hours else None,
+            )
             return Response(rows, status=status.HTTP_200_OK)
         except RuntimeError as exc:
             return Response(

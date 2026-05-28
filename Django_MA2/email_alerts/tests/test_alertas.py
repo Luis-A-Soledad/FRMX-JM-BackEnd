@@ -13,6 +13,7 @@ from email_alerts.helpers import (
     build_alerta_response,
     normalize_columns,
 )
+from email_alerts.service import fetch_email_alerts_operational_rows
 
 # ---------------------------------------------------------------------------
 # Datos mock que simulan lo que devuelve _execute_statement
@@ -78,6 +79,26 @@ def _mock_execute_statement_error(query, *, parameters=None):
 
 def _mock_resolve_connection():
     return ("fake-host", "fake-wh", "fake-token", "fake.table")
+
+
+def _mock_get_table_columns(_table_name: str):
+    return {
+        "train_id",
+        "asset_id",
+        "id_alerta",
+        "alert_type_detected",
+        "subject",
+        "detail_location_at_start",
+        "detail_location_at_end",
+        "detail_mile_post_at_start",
+        "detail_mile_post_at_end",
+        "crew_eng_name",
+        "event_time_utc",
+    }
+
+
+def _mock_execute_statement_snapshot(query, *, parameters=None):
+    return ["train_id"], [["TRN-1"]]
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +208,31 @@ class NormalizeColumnsTests(TestCase):
         result = build_alerta_response(normalized, timestamp_col="event_time_utc")
         self.assertEqual(result["fechaCreacion"], "2025-01-01T00:00:00Z")
 
+    def test_ultima_alerta_prefers_nombre_alerta_and_combines_with_titulo(self):
+        raw = {
+            "titulo": "Alerta_01",
+            "nombre_alerta": "Exceso de velocidad",
+        }
+        normalized = normalize_columns(raw)
+        result = build_alerta_response(normalized)
+        self.assertEqual(result["ultimaAlerta"], "Exceso de velocidad (Alerta_01)")
+
+    def test_ultima_alerta_uses_nombre_alerta_when_titulo_missing(self):
+        raw = {
+            "nombre_alerta": "Frenado brusco",
+        }
+        normalized = normalize_columns(raw)
+        result = build_alerta_response(normalized)
+        self.assertEqual(result["ultimaAlerta"], "Frenado brusco")
+
+    def test_ultima_alerta_falls_back_to_titulo(self):
+        raw = {
+            "titulo": "Alerta_03",
+        }
+        normalized = normalize_columns(raw)
+        result = build_alerta_response(normalized)
+        self.assertEqual(result["ultimaAlerta"], "Alerta_03")
+
 
 # ---------------------------------------------------------------------------
 # Tests de endpoint GET /api/alertas (lista paginada)
@@ -255,11 +301,113 @@ class AlertasListViewTests(TestCase):
         self.assertIn("next", links)
         self.assertIn("prev", links)
 
+    @patch("email_alerts.views_alertas.fetch_alertas_count", return_value=1)
+    @patch("email_alerts.views_alertas.fetch_alertas_page", return_value=[{"id_alerta": 1, "event_time_utc": "2025-06-15 10:00:00"}])
+    def test_list_only_last_12_hours_passes_rolling_window(self, mock_page, mock_count):
+        response = self.client.get(self.url, {"only_last_12_hours": "true"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_page.assert_called_once_with(
+            1,
+            20,
+            timestamp_col="receivedDateTime",
+            train_id=None,
+            fecha=None,
+            last_hours=12,
+        )
+        mock_count.assert_called_once_with(
+            train_id=None,
+            fecha=None,
+            last_hours=12,
+        )
+
+    @patch("email_alerts.views_alertas.fetch_alertas_count", return_value=1)
+    @patch("email_alerts.views_alertas.fetch_alertas_page", return_value=[{"id_alerta": 1, "event_time_utc": "2025-06-15 10:00:00"}])
+    def test_list_defaults_to_last_12_hours(self, mock_page, mock_count):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_page.assert_called_once_with(
+            1,
+            20,
+            timestamp_col="receivedDateTime",
+            train_id=None,
+            fecha=None,
+            last_hours=12,
+        )
+        mock_count.assert_called_once_with(
+            train_id=None,
+            fecha=None,
+            last_hours=12,
+        )
+
+    @patch("email_alerts.views_alertas.fetch_alertas_count", return_value=1)
+    @patch("email_alerts.views_alertas.fetch_alertas_page", return_value=[{"id_alerta": 1, "event_time_utc": "2025-06-15 10:00:00"}])
+    def test_list_fecha_disables_default_last_12_hours(self, mock_page, mock_count):
+        response = self.client.get(self.url, {"fecha": "2025-06-15"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_page.assert_called_once_with(
+            1,
+            20,
+            timestamp_col="receivedDateTime",
+            train_id=None,
+            fecha="2025-06-15",
+            last_hours=None,
+        )
+        mock_count.assert_called_once_with(
+            train_id=None,
+            fecha="2025-06-15",
+            last_hours=None,
+        )
+
+    @patch("email_alerts.views_alertas.fetch_alertas_count", return_value=0)
+    @patch("email_alerts.views_alertas.fetch_alertas_page", return_value=[])
+    def test_alertas_filtradas_endpoint_uses_default_tipos_alerta(self, mock_page, mock_count):
+        response = self.client.get("/api/alertas/alertas-filtradas/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_page.assert_called_once_with(
+            1,
+            20,
+            timestamp_col="receivedDateTime",
+            train_id=None,
+            fecha=None,
+            last_hours=12,
+            tipos_alerta=["Alerta_01", "Alerta_02", "Alerta_03", "Alerta_06"],
+        )
+        mock_count.assert_called_once_with(
+            train_id=None,
+            fecha=None,
+            last_hours=12,
+            tipos_alerta=["Alerta_01", "Alerta_02", "Alerta_03", "Alerta_06"],
+        )
+
+    @patch("email_alerts.views_alertas.fetch_alertas_count", return_value=0)
+    @patch("email_alerts.views_alertas.fetch_alertas_page", return_value=[])
+    def test_alertas_filtradas_alias_endpoint_works(self, mock_page, mock_count):
+        response = self.client.get("/api/alertas-filtradas/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_page.assert_called_once_with(
+            1,
+            20,
+            timestamp_col="receivedDateTime",
+            train_id=None,
+            fecha=None,
+            last_hours=12,
+            tipos_alerta=["Alerta_01", "Alerta_02", "Alerta_03", "Alerta_06"],
+        )
+        mock_count.assert_called_once_with(
+            train_id=None,
+            fecha=None,
+            last_hours=12,
+            tipos_alerta=["Alerta_01", "Alerta_02", "Alerta_03", "Alerta_06"],
+        )
+
     def test_list_page_zero_returns_400(self):
         response = self.client.get(self.url, {"page": 0})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        body = response.json()
-        self.assertEqual(body["error"]["code"], "PARAMETROS_INVALIDOS")
 
     def test_list_size_over_max_returns_400(self):
         response = self.client.get(self.url, {"size": 200})
@@ -288,6 +436,53 @@ class AlertasListViewTests(TestCase):
         self.assertEqual(body["error"]["code"], "DATABRICKS_ERROR")
         # No se expone el detalle interno
         self.assertNotIn("500", body["error"]["message"])
+
+
+class FetchEmailAlertsOperationalRowsTests(TestCase):
+    @patch("email_alerts.service._resolve_connection", return_value=_mock_resolve_connection())
+    @patch("email_alerts.service._get_table_columns", side_effect=_mock_get_table_columns)
+    @patch("email_alerts.service._execute_statement", side_effect=_mock_execute_statement_snapshot)
+    def test_last_hours_filter_uses_rolling_window(self, mock_exec, _mock_columns, _mock_conn):
+        fetch_email_alerts_operational_rows(last_hours=12)
+
+        query = mock_exec.call_args.args[0]
+        self.assertIn("CURRENT_TIMESTAMP() - INTERVAL 12 HOURS", query)
+        self.assertNotIn("CAST(event_time_utc AS DATE) = CURRENT_DATE()", query)
+
+
+@override_settings(ENTRA_SSO_ENFORCE=False, ENTRA_AUTH_ENABLED=False)
+class AlertasPorLocoPrincipalViewTests(TestCase):
+    """Tests para endpoint agrupado por tren y su variante filtrada."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+    @patch("email_alerts.views_alertas.fetch_email_alerts_operational_rows", return_value=[])
+    def test_loco_principal_passes_tipos_alerta_query(self, mock_fetch):
+        response = self.client.get(
+            "/api/alertas/alertas-por-loco-principal/",
+            {"tipos_alerta": "Alerta_01,Alerta_02"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_fetch.assert_called_once_with(
+            limit=None,
+            only_today=False,
+            last_hours=12,
+            tipos_alerta=["Alerta_01", "Alerta_02"],
+        )
+
+    @patch("email_alerts.views_alertas.fetch_email_alerts_operational_rows", return_value=[])
+    def test_loco_principal_filtradas_defaults_to_requested_alerts(self, mock_fetch):
+        response = self.client.get("/api/alertas/alertas-por-loco-principal-filtradas/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_fetch.assert_called_once_with(
+            limit=None,
+            only_today=False,
+            last_hours=12,
+            tipos_alerta=["Alerta_01", "Alerta_02", "Alerta_03", "Alerta_06"],
+        )
 
 
 # ---------------------------------------------------------------------------

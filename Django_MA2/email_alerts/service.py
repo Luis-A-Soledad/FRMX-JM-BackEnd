@@ -190,7 +190,7 @@ def _poll_until_done(
 def _resolve_connection() -> tuple[str, str, str, str]:
     """Resuelve host, warehouse_id, token y table_name para Databricks."""
     host = _get_env_or_kv(
-        env_names=["EMAIL_ALERTS_DATABRICKS_HOST", "DATABRICKS_SQL_HOST"],
+        env_names=["EMAIL_ALERTS_DATABRICKS_HOST", "DATABRICKS_SQL_HOST", "DATABRICKS_HOST"],
         kv_secret_names=[
             os.getenv("DATABRICKS_SQL_HOST_SECRET_NAME", "").strip(),
             "DATABRICKS-SQL-HOST",
@@ -363,10 +363,31 @@ def _select_expr_end(
     return f"CAST(NULL AS STRING) AS {alias}"
 
 
+def _normalize_tipo_alerta_filters(tipos_alerta: list[str] | tuple[str, ...] | None) -> list[str]:
+    """Normaliza una lista de tipos de alerta para uso en SQL parametrizado."""
+    if not tipos_alerta:
+        return []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in tipos_alerta:
+        if raw is None:
+            continue
+        value = str(raw).strip()
+        if not value:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+    return normalized
+
+
 def fetch_email_alerts_operational_rows(
     limit: int | None = None,
     only_today: bool = False,
+    last_hours: int | None = None,
     train_id: str | None = None,
+    tipos_alerta: list[str] | tuple[str, ...] | None = None,
 ) -> list[dict[str, Any]]:
     """Obtiene alertas agrupadas por train_id.
 
@@ -442,14 +463,40 @@ def fetch_email_alerts_operational_rows(
         "crew_eng_name",
         "maquinista",
     )
+    nombre_alerta_col = _first_existing(available, "nombre_alerta")
+    nombre_alerta_expr = (
+        f"FIRST_VALUE({nombre_alerta_col}) OVER (PARTITION BY train_id ORDER BY {ts_col} DESC) AS nombre_alerta"
+        if nombre_alerta_col
+        else "CAST(NULL AS STRING) AS nombre_alerta"
+    )
+    tipo_alerta_col = _first_existing(available, "tipo_alerta", "alert_type_detected")
+    tipo_alerta_expr = (
+        f"FIRST_VALUE({tipo_alerta_col}) OVER (PARTITION BY train_id ORDER BY {ts_col} DESC) AS tipo_alerta"
+        if tipo_alerta_col
+        else "CAST(NULL AS STRING) AS tipo_alerta"
+    )
 
     conditions: list[str] = []
     params: list[dict[str, str]] = []
     if only_today:
         conditions.append(f"CAST({ts_col} AS DATE) = CURRENT_DATE()")
+    elif last_hours is not None:
+        if last_hours < 1:
+            raise ValueError("last_hours debe ser >= 1.")
+        conditions.append(f"{ts_col} >= CURRENT_TIMESTAMP() - INTERVAL {int(last_hours)} HOURS")
     if train_id:
         conditions.append("train_id = :train_id_param")
         params.append({"name": "train_id_param", "value": train_id, "type": "STRING"})
+    tipos_alerta_normalized = _normalize_tipo_alerta_filters(tipos_alerta)
+    if tipos_alerta_normalized:
+        if not tipo_alerta_col:
+            return []
+        placeholders: list[str] = []
+        for idx, tipo_alerta in enumerate(tipos_alerta_normalized):
+            param_name = f"tipo_alerta_param_{idx}"
+            placeholders.append(f":{param_name}")
+            params.append({"name": param_name, "value": tipo_alerta, "type": "STRING"})
+        conditions.append(f"{tipo_alerta_col} IN ({', '.join(placeholders)})")
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
     query = (
@@ -459,12 +506,14 @@ def fetch_email_alerts_operational_rows(
         f"FIRST_VALUE(asset_id) OVER (PARTITION BY train_id ORDER BY {ts_col} DESC) AS asset_id, "
         f"FIRST_VALUE(id_alerta) OVER (PARTITION BY train_id ORDER BY {ts_col} DESC) AS id_alerta, "
         f"FIRST_VALUE(alert_type_detected) OVER (PARTITION BY train_id ORDER BY {ts_col} DESC) AS titulo, "
-        f"FIRST_VALUE(subject) OVER (PARTITION BY train_id ORDER BY {ts_col} DESC) AS descripcion, "
+        f"{'FIRST_VALUE(descripcion) OVER (PARTITION BY train_id ORDER BY ' + ts_col + ' DESC)' if 'descripcion' in available else 'CAST(NULL AS STRING)'} AS descripcion, "
         f"{loc_start_expr}, "
         f"{loc_end_expr}, "
         f"{mile_start_expr}, "
         f"{mile_end_expr}, "
         f"{crew_expr}, "
+        f"{nombre_alerta_expr}, "
+        f"{tipo_alerta_expr}, "
         f"COUNT(*) OVER (PARTITION BY train_id) AS alert_count, "
         f"ROW_NUMBER() OVER (PARTITION BY train_id ORDER BY {ts_col} DESC) AS rn "
         f"FROM {table_name} "
@@ -473,7 +522,7 @@ def fetch_email_alerts_operational_rows(
     # Keep only one row per train_id (the latest)
     query = (
         f"SELECT train_id, asset_id, last_event, id_alerta, titulo, "
-        f"descripcion, region, distrito, maquinista, "
+        f"descripcion, region, distrito, maquinista, nombre_alerta, tipo_alerta, "
         f"detail_mile_post_at_start, detail_mile_post_at_end, alert_count "
         f"FROM ({query}) sub "
         f"WHERE rn = 1 "
@@ -498,6 +547,8 @@ def fetch_alertas_page(
     timestamp_col: str | None = None,
     train_id: str | None = None,
     fecha: str | None = None,
+    last_hours: int | None = None,
+    tipos_alerta: list[str] | tuple[str, ...] | None = None,
 ) -> list[dict[str, Any]]:
     """Obtiene una pagina de alertas con ORDER BY timestamp DESC.
 
@@ -519,6 +570,21 @@ def fetch_alertas_page(
     if fecha:
         conditions.append(f"CAST({ts_col} AS DATE) = :fecha_param")
         params.append({"name": "fecha_param", "value": fecha, "type": "STRING"})
+    if last_hours is not None:
+        if last_hours < 1:
+            raise ValueError("last_hours debe ser >= 1.")
+        conditions.append(f"{ts_col} >= CURRENT_TIMESTAMP() - INTERVAL {int(last_hours)} HOURS")
+    tipo_alerta_col = _first_existing(available, "tipo_alerta", "alert_type_detected")
+    tipos_alerta_normalized = _normalize_tipo_alerta_filters(tipos_alerta)
+    if tipos_alerta_normalized:
+        if not tipo_alerta_col:
+            return []
+        placeholders: list[str] = []
+        for idx, tipo_alerta in enumerate(tipos_alerta_normalized):
+            param_name = f"tipo_alerta_param_{idx}"
+            placeholders.append(f":{param_name}")
+            params.append({"name": param_name, "value": tipo_alerta, "type": "STRING"})
+        conditions.append(f"{tipo_alerta_col} IN ({', '.join(placeholders)})")
 
     train_filter = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     if not params:
@@ -563,7 +629,7 @@ def fetch_alertas_page(
         f"train_id, "
         f"asset_id, "
         f"alert_type_detected AS titulo, "
-        f"subject AS descripcion, "
+        f"{'descripcion' if 'descripcion' in available else 'CAST(NULL AS STRING)'} AS descripcion, "
         f"{ts_col} AS last_event, "
         f"{loc_start_expr}, "
         f"{loc_end_expr}, "
@@ -577,10 +643,10 @@ def fetch_alertas_page(
         f"detail_max_speed, "
         f"detail_bp_pres_at_start, "
         f"detail_bp_pres_at_end, "
-        f"prioridad "
-        #f"tipo_alerta, "
-        #f"nombre_alerta, "
-        #f"AFT "
+        f"prioridad, "
+        f"tipo_alerta, "
+        f"nombre_alerta, "
+        f"AFT "
         f"FROM {table_name} "
         f"{train_filter} "
         f"ORDER BY {ts_col} DESC "
@@ -591,7 +657,12 @@ def fetch_alertas_page(
     return _rows_to_dicts(columns, rows)
 
 
-def fetch_alertas_count(train_id: str | None = None, fecha: str | None = None) -> int:
+def fetch_alertas_count(
+    train_id: str | None = None,
+    fecha: str | None = None,
+    last_hours: int | None = None,
+    tipos_alerta: list[str] | tuple[str, ...] | None = None,
+) -> int:
     """Retorna el total de alertas. Filtra por train_id y/o fecha si se indican."""
     table_name = get_alertas_table_name()
     ts_col = _resolve_timestamp_col(
@@ -606,6 +677,22 @@ def fetch_alertas_count(train_id: str | None = None, fecha: str | None = None) -
     if fecha:
         conditions.append(f"CAST({ts_col} AS DATE) = :fecha_param")
         params.append({"name": "fecha_param", "value": fecha, "type": "STRING"})
+    if last_hours is not None:
+        if last_hours < 1:
+            raise ValueError("last_hours debe ser >= 1.")
+        conditions.append(f"{ts_col} >= CURRENT_TIMESTAMP() - INTERVAL {int(last_hours)} HOURS")
+    available = _get_table_columns(table_name)
+    tipo_alerta_col = _first_existing(available, "tipo_alerta", "alert_type_detected")
+    tipos_alerta_normalized = _normalize_tipo_alerta_filters(tipos_alerta)
+    if tipos_alerta_normalized:
+        if not tipo_alerta_col:
+            return 0
+        placeholders: list[str] = []
+        for idx, tipo_alerta in enumerate(tipos_alerta_normalized):
+            param_name = f"tipo_alerta_param_{idx}"
+            placeholders.append(f":{param_name}")
+            params.append({"name": param_name, "value": tipo_alerta, "type": "STRING"})
+        conditions.append(f"{tipo_alerta_col} IN ({', '.join(placeholders)})")
 
     train_filter = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     if not params:
@@ -679,6 +766,17 @@ def fetch_alertas_since(since_timestamp: str | None = None) -> list[dict[str, An
         "crew_eng_name",
         "maquinista",
     )
+    nombre_alerta_expr = _select_expr(
+        "nombre_alerta",
+        available,
+        "nombre_alerta",
+    )
+    tipo_alerta_expr = _select_expr(
+        "tipo_alerta",
+        available,
+        "tipo_alerta",
+        "alert_type_detected",
+    )
 
     if since_timestamp is None:
         query = (
@@ -692,6 +790,8 @@ def fetch_alertas_since(since_timestamp: str | None = None) -> list[dict[str, An
             f"{mile_start_expr}, "
             f"{mile_end_expr}, "
             f"{crew_expr}, "
+            f"{nombre_alerta_expr}, "
+            f"{tipo_alerta_expr}, "
             f"prioridad "
             f"FROM {table_name} "
             f"ORDER BY {ts_col} DESC "
@@ -710,6 +810,8 @@ def fetch_alertas_since(since_timestamp: str | None = None) -> list[dict[str, An
             f"{mile_start_expr}, "
             f"{mile_end_expr}, "
             f"{crew_expr}, "
+            f"{nombre_alerta_expr}, "
+            f"{tipo_alerta_expr}, "
             f"prioridad "
             f"FROM {table_name} "
             f"WHERE {ts_col} > :since_ts "
@@ -738,8 +840,10 @@ def fetch_calificaciones_maquinista(
     Retorna lista de dicts con: id_maquinista, nombre_maquinista,
     Score_Promedio, Alertas_Acumuladas, Frecuencia_Evento, Alerta_Comun.
     """
+    catalog = os.getenv("CATALOG", '').strip()
+
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_calificaciones_maquinista("
+        "SELECT * FROM " + catalog + ".gold.fn_calificaciones_maquinista("
         ":p_fecha_inicio, :p_fecha_fin, :p_jefe_maquinista)"
     )
     parameters = [
@@ -760,8 +864,9 @@ def fetch_frecuencia_alertas_maquinista(
 
     Retorna lista de dicts con: Prioridad, Alerta, Frecuencia.
     """
+    catalog = os.getenv("CATALOG", '').strip()
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_frecuencia_alertas_maquinista("
+        "SELECT * FROM " + catalog + ".gold.fn_frecuencia_alertas_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
     )
     parameters = [
@@ -782,8 +887,10 @@ def fetch_resumen_semanal_maquinista(
 
     Retorna lista de dicts con: Score, Total_Alertas, Distrito, Fecha.
     """
+    catalog = os.getenv("CATALOG", '').strip()
+
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_resumen_semanal_maquinista("
+        "SELECT * FROM " + catalog + ".gold.fn_resumen_semanal_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
     )
     parameters = [
@@ -805,8 +912,9 @@ def fetch_viajes_maquinista(
     Retorna lista de dicts con: train_id, ponderation, event_count, date,
     region, district, alerts (array de structs con priority, message, count).
     """
+    catalog = os.getenv("CATALOG", '').strip()
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_viajes_maquinista("
+        "SELECT * FROM " + catalog + ".gold.fn_viajes_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
     )
     parameters = [
@@ -828,8 +936,9 @@ def fetch_to_maquinista(
     Retorna lista de dicts con: train_id, date, improper,
     to_data (array de structs con to_value, pk_inicio, pk_fin, distrito, region, hora).
     """
+    catalog = os.getenv("CATALOG", '').strip()
     query = (
-        "SELECT * FROM ey_data_ai_dev.gold.fn_to_maquinista("
+        "SELECT * FROM " + catalog + ".gold.fn_to_maquinista("
         ":p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
     )
     parameters = [
@@ -853,9 +962,10 @@ def fetch_comparativa_maquinistas(
     Retorna lista de dicts con: Etiqueta, nombre_maquinista, Score,
     Total_Alertas, Distrito, Fecha.
     """
+    catalog = os.getenv("CATALOG", '').strip()
     if id_maquinista_opcional is not None:
         query = (
-            "SELECT * FROM ey_data_ai_dev.gold.fn_comparativa_maquinistas("
+            "SELECT * FROM " + catalog + ".gold.fn_comparativa_maquinistas("
             ":p_id_mejor_maquinista, :p_id_maquinista, :p_fecha_inicio, :p_fecha_fin, :p_id_maquinista_opcional)"
         )
         parameters = [
@@ -867,7 +977,7 @@ def fetch_comparativa_maquinistas(
         ]
     else:
         query = (
-            "SELECT * FROM ey_data_ai_dev.gold.fn_comparativa_maquinistas("
+            "SELECT * FROM " + catalog + ".gold.fn_comparativa_maquinistas("
             ":p_id_mejor_maquinista, :p_id_maquinista, :p_fecha_inicio, :p_fecha_fin)"
         )
         parameters = [
