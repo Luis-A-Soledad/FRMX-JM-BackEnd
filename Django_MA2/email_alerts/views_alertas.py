@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_PAGE = 1
 DEFAULT_SIZE = 20
 MAX_SIZE = 100
+DEFAULT_TIPOS_ALERTA_FILTRADAS = ("Alerta_01", "Alerta_02", "Alerta_03", "Alerta_06")
 
 
 def _alertas_authenticators():
@@ -52,6 +53,21 @@ def _error_response(code: str, message: str, details: dict | None = None, http_s
     return Response(body, status=http_status)
 
 
+def _parse_tipos_alerta_query(raw_tipo_alerta: list[str], raw_tipos_alerta: list[str]) -> list[str]:
+    """Parsea tipo_alerta/tipos_alerta desde query params con soporte CSV."""
+    values = [*raw_tipo_alerta, *raw_tipos_alerta]
+    parsed: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        for token in str(raw).split(","):
+            value = token.strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            parsed.append(value)
+    return parsed
+
+
 class AlertasListView(APIView):
     """GET /api/alertas — lista paginada de alertas."""
 
@@ -59,6 +75,12 @@ class AlertasListView(APIView):
 
     def get_authenticators(self):
         return _alertas_authenticators()
+
+    def _get_tipos_alerta(self, request: Request) -> list[str]:
+        return _parse_tipos_alerta_query(
+            request.query_params.getlist("tipo_alerta"),
+            request.query_params.getlist("tipos_alerta"),
+        )
 
     def get(self, request: Request) -> Response:
         # --- Validar page ---
@@ -93,25 +115,30 @@ class AlertasListView(APIView):
         ts_col = _get_timestamp_col()
         train_id = request.query_params.get("train_id")
         fecha = request.query_params.get("fecha")  # YYYY-MM-DD
+        tipos_alerta = self._get_tipos_alerta(request)
         only_last_12_hours_raw = request.query_params.get("only_last_12_hours", "true").lower()
         only_last_12_hours = only_last_12_hours_raw in ("true", "1", "yes")
         if fecha:
             only_last_12_hours = False
 
         try:
-            rows = fetch_alertas_page(
-                page,
-                size,
-                timestamp_col=ts_col,
-                train_id=train_id,
-                fecha=fecha,
-                last_hours=12 if only_last_12_hours else None,
-            )
-            total_items = fetch_alertas_count(
-                train_id=train_id,
-                fecha=fecha,
-                last_hours=12 if only_last_12_hours else None,
-            )
+            page_kwargs = {
+                "timestamp_col": ts_col,
+                "train_id": train_id,
+                "fecha": fecha,
+                "last_hours": 12 if only_last_12_hours else None,
+            }
+            count_kwargs = {
+                "train_id": train_id,
+                "fecha": fecha,
+                "last_hours": 12 if only_last_12_hours else None,
+            }
+            if tipos_alerta:
+                page_kwargs["tipos_alerta"] = tipos_alerta
+                count_kwargs["tipos_alerta"] = tipos_alerta
+
+            rows = fetch_alertas_page(page, size, **page_kwargs)
+            total_items = fetch_alertas_count(**count_kwargs)
         except RuntimeError:
             logger.exception("Error consultando Databricks para alertas list")
             return _error_response(
@@ -202,6 +229,14 @@ class AlertaDetailView(APIView):
         return Response(alerta, status=status.HTTP_200_OK)
 
 
+class AlertasFiltradasListView(AlertasListView):
+    """GET /api/alertas/alertas-filtradas — misma lista paginada, filtrada por alertas 01/02/03/06."""
+
+    def _get_tipos_alerta(self, request: Request) -> list[str]:
+        parsed = super()._get_tipos_alerta(request)
+        return parsed or list(DEFAULT_TIPOS_ALERTA_FILTRADAS)
+
+
 class AlertasPorLocoPrincipalView(APIView):
     """GET /api/alertas/alertas-por-loco-principal — alertas del ultimo asset procesado."""
 
@@ -209,6 +244,12 @@ class AlertasPorLocoPrincipalView(APIView):
 
     def get_authenticators(self):
         return _alertas_authenticators()
+
+    def _get_tipos_alerta(self, request: Request) -> list[str]:
+        return _parse_tipos_alerta_query(
+            request.query_params.getlist("tipo_alerta"),
+            request.query_params.getlist("tipos_alerta"),
+        )
 
     def get(self, request: Request) -> Response:
         limit_raw = request.query_params.get("limit")
@@ -231,12 +272,14 @@ class AlertasPorLocoPrincipalView(APIView):
         only_today = only_today_raw in ("true", "1", "yes")
         only_last_12_hours_raw = request.query_params.get("only_last_12_hours", "true").lower()
         only_last_12_hours = only_last_12_hours_raw in ("true", "1", "yes")
+        tipos_alerta = self._get_tipos_alerta(request)
 
         try:
             rows = fetch_email_alerts_operational_rows(
                 limit=limit,
                 only_today=only_today,
                 last_hours=12 if only_last_12_hours else None,
+                tipos_alerta=tipos_alerta or None,
             )
         except RuntimeError:
             logger.exception("Error consultando Databricks para alertas-por-loco-principal")
@@ -254,6 +297,14 @@ class AlertasPorLocoPrincipalView(APIView):
             )
 
         return Response({"data": rows, "count": len(rows)}, status=status.HTTP_200_OK)
+
+
+class AlertasPorLocoPrincipalFiltradasView(AlertasPorLocoPrincipalView):
+    """GET /api/alertas/alertas-por-loco-principal-filtradas — mismo contrato filtrado por tipo_alerta."""
+
+    def _get_tipos_alerta(self, request: Request) -> list[str]:
+        parsed = super()._get_tipos_alerta(request)
+        return parsed or list(DEFAULT_TIPOS_ALERTA_FILTRADAS)
 
 
 class DebugBroadcastView(APIView):

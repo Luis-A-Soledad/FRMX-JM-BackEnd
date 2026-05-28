@@ -1,11 +1,13 @@
 """Poller híbrido de alertas.
 
-En cada iteración emite dos tipos de eventos:
+En cada iteración emite cuatro tipos de eventos:
 1) ``snapshot_alertas`` con el estado agrupado por tren (formato idéntico
     a GET /api/alertas/alertas-por-loco-principal).
-2) ``snapshot_alertas_list`` con todas las alertas del contrato de
+2) ``snapshot_alertas_filtradas`` con el mismo contrato operacional,
+    pero filtrado por Alerta_01/02/03/06.
+3) ``snapshot_alertas_list`` con todas las alertas del contrato de
     GET /api/alertas/ (consolidado en un solo payload).
-3) ``delta_alertas`` con alertas nuevas detectadas desde el último timestamp.
+4) ``delta_alertas`` con alertas nuevas detectadas desde el último timestamp.
 
 Se inicia automáticamente cuando ALERTAS_POLLER_ENABLED=1 (default)
 desde EmailAlertsConfig.ready().
@@ -40,6 +42,13 @@ _last_delta_timestamp: str | None = None
 _recent_delta_history: deque[dict] = deque(maxlen=500)
 _DEFAULT_ALERTAS_LIST_PAGE = 1
 _DEFAULT_ALERTAS_LIST_SIZE = 20
+_DEFAULT_TIPOS_ALERTA_FILTRADAS = {"Alerta_01", "Alerta_02", "Alerta_03", "Alerta_06"}
+_TIPO_ALERTA_TO_TITULO_ES = {
+    "Alerta_01": "Velocidad",
+    "Alerta_02": "Diferencia",
+    "Alerta_03": "Reduccion",
+    "Alerta_06": "Forma A",
+}
 
 
 def _safe_str(value: Any) -> str | None:
@@ -51,12 +60,16 @@ def _safe_str(value: Any) -> str | None:
 
 def _row_to_operational_contract(row: dict[str, Any]) -> dict[str, Any]:
     """Convierte una fila incremental al contrato del endpoint principal."""
+    nombre_alerta = _safe_str(row.get("nombre_alerta"))
+    tipo_alerta = _safe_str(row.get("tipo_alerta") or row.get("alert_type_detected"))
+    titulo_es = nombre_alerta or _TIPO_ALERTA_TO_TITULO_ES.get(str(tipo_alerta or ""), None)
+
     return {
         "train_id": _safe_str(row.get("train_id")),
         "asset_id": _safe_str(row.get("asset_id")),
         "last_event": _safe_str(row.get("last_event") or row.get("receivedDateTime")),
         "id_alerta": _safe_str(row.get("id_alerta")),
-        "titulo": _safe_str(row.get("titulo") or row.get("alert_type_detected")),
+        "titulo": titulo_es or _safe_str(row.get("titulo") or row.get("alert_type_detected")),
         "descripcion": _safe_str(row.get("descripcion") or row.get("subject")),
         "region": _safe_str(
             row.get("region")
@@ -78,25 +91,65 @@ def _row_to_operational_contract(row: dict[str, Any]) -> dict[str, Any]:
             or row.get("detail_mile_post_current")
             or row.get("detail_mile_post_at_start")
         ),
+        "nombre_alerta": nombre_alerta,
+        "tipo_alerta": tipo_alerta,
         "alert_count": 1,
     }
 
 
+def _normalize_operational_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Alinea payload WS operacional para priorizar títulos en español."""
+    normalized = dict(row)
+    nombre_alerta = _safe_str(normalized.get("nombre_alerta"))
+    tipo_alerta = _safe_str(normalized.get("tipo_alerta") or normalized.get("alert_type_detected"))
+    titulo_es = nombre_alerta or _TIPO_ALERTA_TO_TITULO_ES.get(str(tipo_alerta or ""), None)
+    if titulo_es:
+        normalized["titulo"] = titulo_es
+    if "tipo_alerta" not in normalized and tipo_alerta:
+        normalized["tipo_alerta"] = tipo_alerta
+    if "nombre_alerta" not in normalized and nombre_alerta:
+        normalized["nombre_alerta"] = nombre_alerta
+    return normalized
+
+
+def _is_filtered_operational_row(row: dict[str, Any]) -> bool:
+    """Evalua si una fila pertenece al endpoint filtrado por tipo_alerta."""
+    tipo_alerta = row.get("tipo_alerta")
+    if tipo_alerta is None:
+        return False
+    return str(tipo_alerta).strip() in _DEFAULT_TIPOS_ALERTA_FILTRADAS
+
+
 def _broadcast_snapshot(channel_layer, rows: list[dict]):
-    """Envía snapshot global y por tren con formato del endpoint principal."""
+    """Envía snapshots WS alineados con los endpoints REST de alertas."""
+    normalized_rows = [_normalize_operational_row(row) for row in rows]
+
     async_to_sync(channel_layer.group_send)(
         "alertas_all",
         {
             "type": "alerta.nueva",
             "data": {
                 "event": "snapshot_alertas",
-                "data": rows,
-                "count": len(rows),
+                "data": normalized_rows,
+                "count": len(normalized_rows),
             },
         },
     )
 
-    for row in rows:
+    filtered_rows = [row for row in normalized_rows if _is_filtered_operational_row(row)]
+    async_to_sync(channel_layer.group_send)(
+        "alertas_all",
+        {
+            "type": "alerta.nueva",
+            "data": {
+                "event": "snapshot_alertas_filtradas",
+                "data": filtered_rows,
+                "count": len(filtered_rows),
+            },
+        },
+    )
+
+    for row in normalized_rows:
         train_id = row.get("train_id")
         if not train_id:
             continue
