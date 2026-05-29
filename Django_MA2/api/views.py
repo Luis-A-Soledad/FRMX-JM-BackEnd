@@ -178,7 +178,10 @@ class ChatView(APIView):
         "question": "dame todas las alertas del maquinista 3",
         "session_id": "opcional-uuid-de-sesion-previa",
         "role": "jefe_maquinistas",
-        "region": "Colima"
+        "region": "Colima",
+        "user_id": "ID del usuario como muestra EntraID",
+        "email" :" abc@def.com",
+        "name": "Nombre del usuario"
     }
 
     Response JSON:
@@ -190,7 +193,10 @@ class ChatView(APIView):
         "last_db_table": null,
         "last_error": "",
         "role": "CCO",
-        "region": "Colima"
+        "region": "Colima",
+        "user_id": "ID del usuario como muestra EntraID",
+        "email" :" abc@def.com",
+        "name": "Nombre del usuario"
     }
     """
 
@@ -221,6 +227,9 @@ class ChatView(APIView):
             result = run_agent(
                 question=question,
                 role=user_context["role"],
+                user_id = user_context["user_id"],
+                email = user_context["email"],
+                name = user_context["name"],
                 session_id=session_id
             )
         except Exception as e:
@@ -236,6 +245,9 @@ class ChatView(APIView):
         result["session_id"] = session_id
         result["role"] = user_context["role"]
         result["scopes"] = user_context["scopes"]
+        result["user_id"] = user_context["user_id"]
+        result["email"] = user_context["email"]
+        result["name"] = user_context["name"]
 
         response_serializer = ChatResponseSerializer(data=result)
         if response_serializer.is_valid():
@@ -429,6 +441,7 @@ class WhoAmIView(APIView):
             {
                 "status": "AUTHENTICATED",
                 "oid": user_context.get("oid") or request.auth.get("oid"),
+                "user_id": user_context.get("user_id"),
                 "email": user_context.get("email"),
                 "name": user_context.get("name"),
                 "scp": user_context.get("scp", []),
