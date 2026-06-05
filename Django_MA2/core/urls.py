@@ -15,4 +15,5 @@ urlpatterns = [
     path("api/alertas/", include("email_alerts.urls_alertas")),
     path("api/alertas-filtradas/", AlertasFiltradasListView.as_view(), name="alertas_filtradas_alias"),
     path("api/calificaciones/", include("email_alerts.urls_calificaciones")),
+    path("api/viaje-seguro/", include("email_alerts.urls_viaje_seguro")),
 ]
