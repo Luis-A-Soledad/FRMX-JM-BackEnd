@@ -988,3 +988,167 @@ def fetch_comparativa_maquinistas(
         ]
     columns, rows = _execute_statement(query, parameters=parameters)
     return _rows_to_dicts(columns, rows)
+
+
+# ---------------------------------------------------------------------------
+# TVF: Viaje Seguro
+# ---------------------------------------------------------------------------
+
+def fetch_vs_desempeno_region(
+    fecha_inicio: str,
+    fecha_fin: str,
+    mail_jefe_maquinista: str,
+) -> list[dict[str, Any]]:
+    """Llama a vs_desempeno_region(fecha_inicio, fecha_fin, mail_jefe_maquinista).
+
+    Retorna lista de dicts con: desempeno_regional_actual, desempeno_regional_anterior.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+    query = (
+        "SELECT * FROM " + catalog + ".gold.vs_desempeno_region("
+        ":fecha_inicio, :fecha_fin, :mail_jefe_maquinista)"
+    )
+    parameters = [
+        {"name": "fecha_inicio", "value": fecha_inicio, "type": "TIMESTAMP"},
+        {"name": "fecha_fin", "value": fecha_fin, "type": "TIMESTAMP"},
+        {"name": "mail_jefe_maquinista", "value": mail_jefe_maquinista, "type": "STRING"},
+    ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
+
+
+def fetch_vs_distritos(
+    fecha_inicio: str,
+    fecha_fin: str,
+    mail_jefe_maquinista: str,
+) -> list[dict[str, Any]]:
+    """Llama a vs_distritos(fecha_inicio, fecha_fin, mail_jefe_maquinista).
+
+    Retorna lista de dicts con: region, distrito, promedio_score, riesgo, alertas.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+    query = (
+        "SELECT * FROM " + catalog + ".gold.vs_distritos("
+        ":fecha_inicio, :fecha_fin, :mail_jefe_maquinista)"
+    )
+    parameters = [
+        {"name": "fecha_inicio", "value": fecha_inicio, "type": "TIMESTAMP"},
+        {"name": "fecha_fin", "value": fecha_fin, "type": "TIMESTAMP"},
+        {"name": "mail_jefe_maquinista", "value": mail_jefe_maquinista, "type": "STRING"},
+    ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
+
+
+def fetch_vs_gestion(
+    fecha_inicio: str,
+    fecha_fin: str,
+    email_jefe: str,
+) -> list[dict[str, Any]]:
+    """Llama a vs_gestion(p_fecha_inicio, p_fecha_fin, p_email_jefe).
+
+    Retorna lista de dicts con: id_maquinista, nombre_maquinista,
+    Score_Promedio, Distrito, Viajes, Certificados.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+    query = (
+        "SELECT * FROM " + catalog + ".gold.vs_gestion("
+        ":p_fecha_inicio, :p_fecha_fin, :p_email_jefe)"
+    )
+    parameters = [
+        {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
+        {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
+        {"name": "p_email_jefe", "value": email_jefe, "type": "STRING"},
+    ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
+
+
+def fetch_vs_hist_cert(
+    fecha_inicio: str,
+    fecha_fin: str,
+    id_maquinista: str,
+) -> list[dict[str, Any]]:
+    """Llama a vs_hist_cert(fecha_inicio, fecha_fin, p_id_maquinista).
+
+    Retorna lista de dicts con: id_viaje, FechaGeneracion, calificacion_global, distrito.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+    query = (
+        "SELECT * FROM " + catalog + ".gold.vs_hist_cert("
+        ":fecha_inicio, :fecha_fin, :p_id_maquinista)"
+    )
+    parameters = [
+        {"name": "fecha_inicio", "value": fecha_inicio, "type": "DATE"},
+        {"name": "fecha_fin", "value": fecha_fin, "type": "DATE"},
+        {"name": "p_id_maquinista", "value": id_maquinista, "type": "STRING"},
+    ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
+
+
+def fetch_vs_indice(
+    fecha_inicio: str,
+    fecha_fin: str,
+    mail_jefe_maquinista: str,
+) -> list[dict[str, Any]]:
+    """Llama a vs_indice(fecha_inicio, fecha_fin, mail_jefe_maquinista).
+
+    Retorna lista de dicts con: VM_Certificados, VM_Reprobados, VM_Total,
+    V_Certificados, V_Reprobados, V_Totales.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+    query = (
+        "SELECT * FROM " + catalog + ".gold.vs_indice("
+        ":fecha_inicio, :fecha_fin, :mail_jefe_maquinista)"
+    )
+    parameters = [
+        {"name": "fecha_inicio", "value": fecha_inicio, "type": "TIMESTAMP"},
+        {"name": "fecha_fin", "value": fecha_fin, "type": "TIMESTAMP"},
+        {"name": "mail_jefe_maquinista", "value": mail_jefe_maquinista, "type": "STRING"},
+    ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
+
+
+def fetch_vs_reconocimiento(
+    fecha_inicio: str,
+    fecha_fin: str,
+    email_jefe: str,
+) -> list[dict[str, Any]]:
+    """Llama a vs_reconocimiento(p_fecha_inicio, p_fecha_fin, p_email_jefe).
+
+    Retorna lista de dicts con: posicion, id_maquinista, nombre_maquinista,
+    Score_Promedio, region.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+    query = (
+        "SELECT * FROM " + catalog + ".gold.vs_reconocimiento("
+        ":p_fecha_inicio, :p_fecha_fin, :p_email_jefe)"
+    )
+    parameters = [
+        {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
+        {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
+        {"name": "p_email_jefe", "value": email_jefe, "type": "STRING"},
+    ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
+
+
+def fetch_vs_score_mensual(
+    id_maquinista: str,
+) -> list[dict[str, Any]]:
+    """Llama a vs_score_mensual(p_id_maquinista).
+
+    Retorna lista de dicts con: Mes, Score.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+    query = (
+        "SELECT * FROM " + catalog + ".gold.vs_score_mensual("
+        ":p_id_maquinista)"
+    )
+    parameters = [
+        {"name": "p_id_maquinista", "value": id_maquinista, "type": "STRING"},
+    ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
