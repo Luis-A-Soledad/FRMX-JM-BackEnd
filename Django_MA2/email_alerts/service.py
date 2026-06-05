@@ -855,6 +855,31 @@ def fetch_calificaciones_maquinista(
     return _rows_to_dicts(columns, rows)
 
 
+def fetch_calificaciones_todos(
+    fecha_inicio: str,
+    fecha_fin: str,
+) -> list[dict[str, Any]]:
+    """Llama a fn_calificaciones_todos(p_fecha_inicio, p_fecha_fin).
+
+    Variante de fn_calificaciones_maquinista SIN filtro de jefe/region: devuelve
+    TODOS los maquinistas (uso de CCO). Mismo shape de salida: id_maquinista,
+    nombre_maquinista, Score_Promedio, Alertas_Acumuladas, Frecuencia_Evento,
+    Alerta_Comun.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+
+    query = (
+        "SELECT * FROM " + catalog + ".gold.fn_calificaciones_todos("
+        ":p_fecha_inicio, :p_fecha_fin)"
+    )
+    parameters = [
+        {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
+        {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
+    ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
+
+
 def fetch_frecuencia_alertas_maquinista(
     id_maquinista: str,
     fecha_inicio: str,
