@@ -35,6 +35,56 @@ class ChatRequestSerializer(serializers.Serializer):
     )
 
 
+class ResumenRequestSerializer(serializers.Serializer):
+    """
+    Request para el Agente de Resumenes (POST /api/resumen/).
+
+    Modo principal: el front manda 'view' (+ 'filters') para resumir
+    automaticamente una pantalla. 'question' libre se mantiene como
+    alternativa/compatibilidad. Debe venir al menos 'view' o 'question'.
+    """
+    view = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=100,
+        help_text="Id de la vista a resumir (ej. 'calificadores', 'maquinista', 'region').",
+    )
+    filters = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Filtros de la vista (ej. {'maquinista': 'NOMBRE'}).",
+    )
+    question = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        default=None,
+        max_length=2000,
+        help_text="Pregunta libre (modo alternativo, sin vista).",
+    )
+    session_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="ID de sesión existente. Si no se envía, se crea una nueva.",
+    )
+
+    def validate(self, attrs):
+        view = attrs.get("view")
+        question = (attrs.get("question") or "").strip()
+        if not view and not question:
+            raise serializers.ValidationError(
+                "Debes enviar 'view' o 'question'."
+            )
+        # La vista 'maquinista' requiere el filtro 'maquinista'.
+        if view == "maquinista" and not (attrs.get("filters") or {}).get("maquinista"):
+            raise serializers.ValidationError(
+                {"filters": "La vista 'maquinista' requiere filters.maquinista."}
+            )
+        return attrs
+
+
 class ChatResponseSerializer(serializers.Serializer):
     answer = serializers.CharField()
     decision = serializers.CharField()
