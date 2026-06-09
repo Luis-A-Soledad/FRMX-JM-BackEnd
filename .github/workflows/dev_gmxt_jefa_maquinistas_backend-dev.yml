@@ -23,25 +23,31 @@ jobs:
         with:
           python-version: '3.11'
 
+      
+      # Caché para optimizar el proceso de deploy, evitando reinstalar dependencias si no han cambiado
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # Instalar dependencias
       - name: Install dependencies
         run: |
-          python -m venv antenv
-          source antenv/bin/activate
+          # Instalar dependencias 
+          pip install -r requirements.txt
 
-          # Upgrade pip para evitar problemas de resolución
-          pip install --upgrade pip
+        working-directory: Django_MA2
 
-          # Limpiar cache (extra seguro)
-          pip cache purge || true
-
-          # Instalar dependencias sin usar cache
-          pip install --no-cache-dir -r requirements.txt --force-reinstall
-
+      # Collect static files
+      - name: Collect static files
+        run: python manage.py collectstatic --noinput
         working-directory: Django_MA2
 
       - name: Run migrations
         run: |
-          source antenv/bin/activate
           python manage.py migrate
         working-directory: Django_MA2
         env:
@@ -81,7 +87,8 @@ jobs:
           CATALOG: 'db_jefamaquinista_dev_01_7405609941721101'
 
       - name: Zip artifact for deployment
-        run: zip release.zip ./* -r --exclude "*.pyc" --exclude "__pycache__/*" --exclude ".git/*"
+        run: zip -r release.zip . -x "*.pyc" "__pycache__/*" ".git/*" "antenv/*" ".venv/*" "tests/*"
+
         working-directory: Django_MA2
 
       - name: Upload artifact for deployment jobs
