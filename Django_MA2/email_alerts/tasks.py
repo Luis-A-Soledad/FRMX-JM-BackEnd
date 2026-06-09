@@ -284,6 +284,91 @@ def _broadcast_delta(channel_layer, alertas_nuevas: list[dict]):
             )
 
 
+def _notify_whatsapp(alertas_nuevas: list[dict]):
+    """Envía por WhatsApp las alertas prioritarias nuevas (A01/02/03/06).
+
+    Idempotente por (id_alerta, telefono) vía la tabla WhatsAppEnvio. Cualquier
+    fallo se aísla aquí: nunca debe interrumpir el broadcast WebSocket.
+    """
+    from django.conf import settings
+
+    if not getattr(settings, "ALERTAS_WHATSAPP_ENABLED", False):
+        return
+
+    prioritarias = [a for a in alertas_nuevas if _is_filtered_operational_row(a)]
+    if not prioritarias:
+        return
+
+    from .models import WhatsAppEnvio
+    from .service import fetch_administrativo_contactos
+    from .whatsapp import (
+        build_template_params,
+        resolve_destinatarios,
+        send_template_message,
+    )
+
+    cargos = [
+        c.strip()
+        for c in str(getattr(settings, "WHATSAPP_CARGOS_DESTINO", "")).split(",")
+        if c.strip()
+    ]
+    try:
+        contactos = fetch_administrativo_contactos(cargos or None)
+    except Exception:
+        logger.exception("WhatsApp: no se pudo leer silver.administrativo, se omite envío")
+        return
+
+    for alerta in prioritarias:
+        id_alerta = _safe_str(alerta.get("id_alerta"))
+        if not id_alerta:
+            logger.warning("WhatsApp: alerta sin id_alerta, se omite: %r", alerta.get("train_id"))
+            continue
+
+        destinatarios = resolve_destinatarios(alerta.get("region"), contactos)
+        if not destinatarios:
+            logger.info(
+                "WhatsApp: sin destinatarios para region=%r (alerta=%s)",
+                alerta.get("region"),
+                id_alerta,
+            )
+            continue
+
+        params = build_template_params(alerta)
+        tipo_alerta = _safe_str(alerta.get("tipo_alerta")) or ""
+        train_id = _safe_str(alerta.get("train_id")) or ""
+
+        for dest in destinatarios:
+            telefono = dest["telefono"]
+            if WhatsAppEnvio.objects.filter(id_alerta=id_alerta, telefono=telefono).exists():
+                continue  # ya enviado: idempotencia
+            try:
+                resp = send_template_message(telefono, params)
+                message_id = ""
+                try:
+                    message_id = resp.get("messages", [{}])[0].get("id", "")
+                except (AttributeError, IndexError, KeyError):
+                    message_id = ""
+                WhatsAppEnvio.objects.create(
+                    id_alerta=id_alerta,
+                    telefono=telefono,
+                    tipo_alerta=tipo_alerta,
+                    train_id=train_id,
+                    status=WhatsAppEnvio.STATUS_ENVIADO,
+                    message_id=message_id,
+                )
+                logger.info("WhatsApp enviado: alerta=%s tel=%s", id_alerta, telefono)
+            except Exception as exc:
+                WhatsAppEnvio.objects.create(
+                    id_alerta=id_alerta,
+                    telefono=telefono,
+                    tipo_alerta=tipo_alerta,
+                    train_id=train_id,
+                    status=WhatsAppEnvio.STATUS_ERROR,
+                    error=str(exc)[:2000],
+                )
+                logger.error("WhatsApp falló: alerta=%s tel=%s — %s", id_alerta, telefono, exc)
+
+
 def _poll_and_broadcast():
     """Ejecuta una iteración híbrida del polling.
 
@@ -371,6 +456,11 @@ def _poll_and_broadcast():
         len(alertas_nuevas),
         len(_recent_delta_history),
     )
+
+    try:
+        _notify_whatsapp(alertas_nuevas)
+    except Exception:
+        logger.exception("Poller: fallo aislado en notificación WhatsApp")
 
 
 def start_poller():

@@ -69,6 +69,20 @@ else:
 ALERTAS_POLLER_ENABLED = os.getenv("ALERTAS_POLLER_ENABLED", "1").strip() == "1"
 ALERTAS_POLL_INTERVAL_SECS = int(os.getenv("ALERTAS_POLL_INTERVAL_SECS", "10"))
 
+# ── Notificaciones WhatsApp (alertas prioritarias A01/A02/A03/A06) ──
+# Desactivado por defecto: el envío real espera token/template aprobados por Meta.
+# Todo el scaffold puede mergearse y probarse con el flag en 0.
+ALERTAS_WHATSAPP_ENABLED = os.getenv("ALERTAS_WHATSAPP_ENABLED", "0").strip() == "1"
+# Cargos de silver.administrativo que reciben WhatsApp (CSV).
+# Vacío = TODOS los contactos de la tabla reciben (decisión CCO). Override opcional.
+WHATSAPP_CARGOS_DESTINO = os.getenv("WHATSAPP_CARGOS_DESTINO", "").strip()
+# Credenciales/template de la WhatsApp Business Cloud API (Meta). Pendientes de Meta.
+WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
+WHATSAPP_TEMPLATE_NAME = os.getenv("WHATSAPP_TEMPLATE_NAME", "alerta_prioritaria").strip()
+WHATSAPP_TEMPLATE_LANG = os.getenv("WHATSAPP_TEMPLATE_LANG", "es_MX").strip()
+WHATSAPP_GRAPH_VERSION = os.getenv("WHATSAPP_GRAPH_VERSION", "v21.0").strip()
+WHATSAPP_REQUEST_TIMEOUT_SECS = int(os.getenv("WHATSAPP_REQUEST_TIMEOUT_SECS", "15"))
+
 # ── Base de datos ────────────────────────────────────────────
 # Si DATABASE_URL está definida en el entorno, la usa (PostgreSQL, etc.).
 # Si no, usa SQLite local para desarrollo.  db.sqlite3 ya está en .gitignore.

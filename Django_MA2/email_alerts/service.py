@@ -541,6 +541,48 @@ def get_alertas_table_name() -> str:
     return table_name
 
 
+def fetch_administrativo_contactos(
+    cargos: list[str] | tuple[str, ...] | None = None,
+) -> list[dict[str, Any]]:
+    """Obtiene contactos del directorio CCO desde ``silver.administrativo``.
+
+    Tabla pequeña (decenas de filas) que mapea personal a su región y teléfono.
+    Se usa para resolver destinatarios de WhatsApp por región de la alerta.
+
+    Si ``cargos`` se indica, filtra por la columna ``Cargo`` (ej. "Jefe de Maq.").
+    Retorna dicts con claves canónicas: nombre, cargo, region, telefono, correo.
+    """
+    catalog = os.getenv("CATALOG", "").strip()
+    if not catalog:
+        raise RuntimeError("Falta variable de entorno requerida: CATALOG")
+    table = f"{catalog}.silver.administrativo"
+
+    conditions: list[str] = []
+    params: list[dict[str, str]] = []
+    cargos_norm = _normalize_tipo_alerta_filters(cargos)
+    if cargos_norm:
+        placeholders: list[str] = []
+        for idx, cargo in enumerate(cargos_norm):
+            param_name = f"cargo_param_{idx}"
+            placeholders.append(f":{param_name}")
+            params.append({"name": param_name, "value": cargo, "type": "STRING"})
+        conditions.append(f"`Cargo` IN ({', '.join(placeholders)})")
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    query = (
+        "SELECT "
+        "`Nombre Completo` AS nombre, "
+        "`Cargo` AS cargo, "
+        "`Region` AS region, "
+        "`TELEFONO` AS telefono, "
+        "`CORREO` AS correo "
+        f"FROM {table} "
+        f"{where_clause}"
+    )
+    columns, rows = _execute_statement(query, parameters=params or None)
+    return _rows_to_dicts(columns, rows)
+
+
 def fetch_alertas_page(
     page: int,
     size: int,
