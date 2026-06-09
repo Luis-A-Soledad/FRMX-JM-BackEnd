@@ -140,11 +140,16 @@ from datetime import date as _date, timedelta as _timedelta
 from email_alerts.service import (
     fetch_calificaciones_maquinista,
     fetch_calificaciones_todos,
+    fetch_vs_distritos,
 )
 
 # Vistas cuyos datos se traen server-side con funciones SQL (Opcion A) y se
 # pasan al agente como 'data' (el agente las resume sin consultar Genie).
-_VIEWS_CON_DATA_SQL = {"calificadores", "maquinista"}
+# 'region' usa la TVF vs_distritos (la misma del endpoint /viaje-seguro/distritos/):
+# alertas por distrito de la region del jefe, ya ordenadas por frecuencia.
+# region EXIGE fecha_inicio/fecha_fin (validado en ResumenRequestSerializer), igual
+# que /viaje-seguro/distritos/, asi que NO tiene default de fechas.
+_VIEWS_CON_DATA_SQL = {"calificadores", "maquinista", "region"}
 
 
 # Ventana FIJA (dias hacia atras, incluyendo hoy) por vista. Si una vista esta
@@ -167,8 +172,9 @@ _DIAS_VENTANA_DEFAULT = 7
 # realmente cambio (p.ej. tras correr el job horario), no en cada carga.
 # El TTL es solo de respaldo (para que el cache no crezca indefinido); quien
 # decide regenerar es la huella, no el reloj. Cache en memoria (LocMemCache),
-# sin base de datos. Solo aplica a vistas con data SQL (calificadores/maquinista);
-# 'region' usa Genie (sin filas que hashear) y no se cachea por huella.
+# sin base de datos. Aplica a TODAS las vistas con data SQL (calificadores,
+# maquinista y region): como ya hay filas para hashear, region tambien se cachea
+# por huella (solo llama al LLM cuando cambian sus distritos/alertas).
 _RESUMEN_CACHE_ENABLED = os.getenv("RESUMEN_CACHE_ENABLED", "1").strip() == "1"
 _RESUMEN_CACHE_TTL = int(os.getenv("RESUMEN_CACHE_TTL_SECS", str(12 * 3600)))
 # Piso de regeneracion (segundos): aunque el dato cambie, no se regenera mas
@@ -201,8 +207,11 @@ def _resumen_rango_fechas(filters: dict, view: str | None = None) -> tuple[str, 
       fecha_fin, YYYY-MM-DD) para que el resumen coincida con la tabla de la
       pantalla.
     - Si el front no manda fechas, se usa una ventana por defecto: los N dias
-      previos MAS hoy ([hoy-N, hoy]), para resumir la semana movil incluyendo
-      el dia actual."""
+      previos MAS hoy ([hoy-N, hoy]), semana movil.
+
+    NOTA: la vista 'region' EXIGE fecha_inicio/fecha_fin (validado en
+    ResumenRequestSerializer), asi que para region SIEMPRE se usan las fechas del
+    front; el default de abajo solo aplica a otras vistas que las omitan."""
     hoy = _date.today()
     dias_fijos = _DIAS_VENTANA_FIJA_POR_VISTA.get(view)
     if dias_fijos is not None:
@@ -225,8 +234,18 @@ def _fetch_resumen_data(view: str, role: str, email: str | None, filters: dict):
 
     Para la vista 'maquinista' filtra al maquinista indicado en filters.maquinista
     (match solo por id_maquinista). Retorna lista de dicts, o None si no hay acceso.
+
+    Para la vista 'region' usa la TVF vs_distritos (la misma fuente que el endpoint
+    /viaje-seguro/distritos/): resuelve la region del jefe via su email y devuelve,
+    por distrito, promedio_score, riesgo y las alertas ya ordenadas por frecuencia.
     """
     fecha_inicio, fecha_fin = _resumen_rango_fechas(filters, view)
+
+    # 'region': alertas por distrito de la region del jefe (via su email).
+    if view == "region":
+        if not email:
+            return None
+        return fetch_vs_distritos(fecha_inicio, fecha_fin, email)
 
     if role == "JEFE_MAQUINISTAS":
         if not email:
@@ -462,7 +481,7 @@ class ResumenView(APIView):
         #      - el dato cambio pero la ultima regeneracion es mas reciente que el
         #        piso (_RESUMEN_MIN_REGEN_SECS) -> sirve algo ligeramente viejo
         #        para acotar el costo del LLM si el dato cambia muy seguido.
-        #    Aplica a vistas con data SQL; 'region' (Genie) siempre llama al agente.
+        #    Aplica a todas las vistas con data SQL (incluida 'region').
         cache_key = None
         huella = None
         if _RESUMEN_CACHE_ENABLED and resumen_data is not None:

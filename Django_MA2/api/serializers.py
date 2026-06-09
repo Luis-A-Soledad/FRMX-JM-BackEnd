@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from rest_framework import serializers
 from accounts.models import Role
 from accounts.utils import ROLE_ANON, ROLE_UNKNOWN
@@ -82,6 +84,23 @@ class ResumenRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"filters": "La vista 'maquinista' requiere filters.maquinista."}
             )
+        # La vista 'region' EXIGE rango de fechas explicito (igual que el endpoint
+        # /viaje-seguro/distritos/), para que el resumen use SIEMPRE el mismo rango
+        # que la grilla y no dependa de un default que pueda divergir.
+        if view == "region":
+            filtros = attrs.get("filters") or {}
+            errores = {}
+            for campo in ("fecha_inicio", "fecha_fin"):
+                valor = str(filtros.get(campo) or "").strip()
+                if not valor:
+                    errores[campo] = "Requerido para la vista 'region' (formato YYYY-MM-DD)."
+                else:
+                    try:
+                        datetime.strptime(valor, "%Y-%m-%d")
+                    except ValueError:
+                        errores[campo] = f"Debe tener formato YYYY-MM-DD, se recibio '{valor}'."
+            if errores:
+                raise serializers.ValidationError({"filters": errores})
         return attrs
 
 
