@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from rest_framework import serializers
 from accounts.models import Role
 from accounts.utils import ROLE_ANON, ROLE_UNKNOWN
@@ -33,6 +35,73 @@ class ChatRequestSerializer(serializers.Serializer):
         default=None,
         help_text="DEPRECATED — El rol se obtiene del perfil del usuario en el servidor.",
     )
+
+
+class ResumenRequestSerializer(serializers.Serializer):
+    """
+    Request para el Agente de Resumenes (POST /api/resumen/).
+
+    Modo principal: el front manda 'view' (+ 'filters') para resumir
+    automaticamente una pantalla. 'question' libre se mantiene como
+    alternativa/compatibilidad. Debe venir al menos 'view' o 'question'.
+    """
+    view = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=100,
+        help_text="Id de la vista a resumir (ej. 'calificadores', 'maquinista', 'region').",
+    )
+    filters = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="Filtros de la vista (ej. {'maquinista': 'NOMBRE'}).",
+    )
+    question = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        default=None,
+        max_length=2000,
+        help_text="Pregunta libre (modo alternativo, sin vista).",
+    )
+    session_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="ID de sesión existente. Si no se envía, se crea una nueva.",
+    )
+
+    def validate(self, attrs):
+        view = attrs.get("view")
+        question = (attrs.get("question") or "").strip()
+        if not view and not question:
+            raise serializers.ValidationError(
+                "Debes enviar 'view' o 'question'."
+            )
+        # La vista 'maquinista' requiere el filtro 'maquinista'.
+        if view == "maquinista" and not (attrs.get("filters") or {}).get("maquinista"):
+            raise serializers.ValidationError(
+                {"filters": "La vista 'maquinista' requiere filters.maquinista."}
+            )
+        # La vista 'region' EXIGE rango de fechas explicito (igual que el endpoint
+        # /viaje-seguro/distritos/), para que el resumen use SIEMPRE el mismo rango
+        # que la grilla y no dependa de un default que pueda divergir.
+        if view == "region":
+            filtros = attrs.get("filters") or {}
+            errores = {}
+            for campo in ("fecha_inicio", "fecha_fin"):
+                valor = str(filtros.get(campo) or "").strip()
+                if not valor:
+                    errores[campo] = "Requerido para la vista 'region' (formato YYYY-MM-DD)."
+                else:
+                    try:
+                        datetime.strptime(valor, "%Y-%m-%d")
+                    except ValueError:
+                        errores[campo] = f"Debe tener formato YYYY-MM-DD, se recibio '{valor}'."
+            if errores:
+                raise serializers.ValidationError({"filters": errores})
+        return attrs
 
 
 class ChatResponseSerializer(serializers.Serializer):

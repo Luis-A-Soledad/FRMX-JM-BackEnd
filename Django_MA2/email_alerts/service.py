@@ -12,10 +12,11 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from functools import lru_cache
 from typing import Any
+from api.distritos import DISTRITOS
 
 import requests
 
@@ -855,6 +856,31 @@ def fetch_calificaciones_maquinista(
     return _rows_to_dicts(columns, rows)
 
 
+def fetch_calificaciones_todos(
+    fecha_inicio: str,
+    fecha_fin: str,
+) -> list[dict[str, Any]]:
+    """Llama a fn_calificaciones_todos(p_fecha_inicio, p_fecha_fin).
+
+    Variante de fn_calificaciones_maquinista SIN filtro de jefe/region: devuelve
+    TODOS los maquinistas (uso de CCO). Mismo shape de salida: id_maquinista,
+    nombre_maquinista, Score_Promedio, Alertas_Acumuladas, Frecuencia_Evento,
+    Alerta_Comun.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+
+    query = (
+        "SELECT * FROM " + catalog + ".gold.fn_calificaciones_todos("
+        ":p_fecha_inicio, :p_fecha_fin)"
+    )
+    parameters = [
+        {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
+        {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
+    ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
+
+
 def fetch_frecuencia_alertas_maquinista(
     id_maquinista: str,
     fecha_inicio: str,
@@ -963,6 +989,10 @@ def fetch_comparativa_maquinistas(
     Total_Alertas, Distrito, Fecha.
     """
     catalog = os.getenv("CATALOG", '').strip()
+
+   # 1. Construir y ejecutar la consulta original
+    # Nota: Usamos las fechas originales para la consulta SQL para asegurarnos
+    # de que el motor devuelve todos los datos posibles en ese rango amplio.
     if id_maquinista_opcional is not None:
         query = (
             "SELECT * FROM " + catalog + ".gold.fn_comparativa_maquinistas("
@@ -986,5 +1016,377 @@ def fetch_comparativa_maquinistas(
             {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
             {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
         ]
+
+    columns, rows = _execute_statement(query, parameters=parameters)
+    data = _rows_to_dicts(columns, rows)
+
+    # 2. Determinar el rango dinámico basado en los datos devueltos
+    try:
+        date_format = "%Y-%m-%d"
+        
+        # Extraer todas las fechas únicas presentes en la respuesta de la BD
+        dates_in_db = set()
+        for row in data:
+            date_str = row.get("Fecha")
+            if date_str:
+                dates_in_db.add(date_str)
+        
+        # Si no hay datos, retornamos la lista vacía o la original
+        if not dates_in_db:
+            return data
+
+        # Calcular la fecha mínima y máxima encontrada
+        min_date_str = min(dates_in_db)
+        max_date_str = max(dates_in_db)
+        
+        start_date_obj = datetime.strptime(min_date_str, date_format).date()
+        end_date_obj = datetime.strptime(max_date_str, date_format).date()
+
+        # Generar la lista de todas las fechas consecutivas en este rango
+        all_dates = []
+        current_date = start_date_obj
+        while current_date <= end_date_obj:
+            all_dates.append(current_date.strftime(date_format))
+            current_date += timedelta(days=1)
+
+    except ValueError:
+        # Si hay problemas de formato, retornamos datos sin rellenar
+        return data
+
+    if not all_dates:
+        return data
+
+    # 3. Agrupar los datos existentes por "Etiqueta" (identificador de persona)
+    grouped_data = {}
+    for row in data:
+        key = row.get("Etiqueta")
+        if key not in grouped_data:
+            grouped_data[key] = []
+        grouped_data[key].append(row)
+
+    # 4. Crear la lista final rellenada
+    final_data = []
+
+    for etiqueta, records in grouped_data.items():
+        # Ordenar registros por fecha para facilitar la búsqueda (opcional pero eficiente)
+        records.sort(key=lambda x: x.get("Fecha", ""))
+
+        # Iterar sobre TODAS las fechas del rango dinámico (desde min_date hasta max_date)
+        for date_str in all_dates:
+            # Buscar si existe un registro para esta fecha específico de esta persona
+            existing_record = None
+            for rec in records:
+                if rec.get("Fecha") == date_str:
+                    existing_record = rec
+                    break
+            
+            if existing_record:
+                # Si existe, agregarlo tal cual
+                final_data.append(existing_record)
+            else:
+                # Si NO existe, crear un registro vacío para esta persona
+                # Usamos el primer registro disponible de esta persona para copiar metadatos
+                base_record = records[0] 
+                
+                new_record = {
+                    "Etiqueta": base_record.get("Etiqueta"),
+                    "nombre_maquinista": base_record.get("nombre_maquinista"),
+                    "Score": None,  # Valor nulo como solicitaste
+                    "Total_Alertas": None,  # Valor nulo para consistencia
+                    "Distrito": base_record.get("Distrito"),
+                    "Fecha": date_str
+                }
+                final_data.append(new_record)
+
+    # 5. Ordenar el resultado final por Fecha y luego por Etiqueta para una presentación ordenada
+    final_data.sort(key=lambda x: (x.get("Fecha", ""), x.get("Etiqueta", "")))
+
+    return final_data
+
+
+# ---------------------------------------------------------------------------
+# TVF: Viaje Seguro
+# ---------------------------------------------------------------------------
+
+def fetch_vs_desempeno_region(
+    fecha_inicio: str,
+    fecha_fin: str,
+    mail_jefe_maquinista: str,
+) -> list[dict[str, Any]]:
+    """Llama a vs_desempeno_region(fecha_inicio, fecha_fin, mail_jefe_maquinista).
+
+    Retorna lista de dicts con: desempeno_regional_actual, desempeno_regional_anterior.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+    query = (
+        "SELECT * FROM " + catalog + ".gold.vs_desempeno_region("
+        ":fecha_inicio, :fecha_fin, :mail_jefe_maquinista)"
+    )
+    parameters = [
+        {"name": "fecha_inicio", "value": fecha_inicio, "type": "TIMESTAMP"},
+        {"name": "fecha_fin", "value": fecha_fin, "type": "TIMESTAMP"},
+        {"name": "mail_jefe_maquinista", "value": mail_jefe_maquinista, "type": "STRING"},
+    ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
+
+
+
+# ------------------------------- Obtener distritos ------------------------------------ #
+def _normalize_distrito(value: Any) -> str:
+    """Normaliza un nombre de distrito para comparaciones case-insensitive."""
+    if value is None:
+        return ""
+    return str(value).strip().upper()
+
+
+def _fetch_distritos_coords(
+    distritos: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Obtiene lat/lng por distrito desde bronze.region_distrito_pk.
+
+    Reglas:
+    - Si existe un registro con lat_ini y lon_ini, se usa ese par.
+    - Si no existe, pero hay un registro con lat_fin y lon_fin, se usa ese par.
+    - Si no hay coordenadas válidas, el distrito no aparecerá en el resultado.
+    - El match ignora mayúsculas/minúsculas y espacios externos.
+    """
+    catalog = os.getenv("CATALOG", "").strip()
+
+    distritos_normalizados: list[str] = []
+    vistos: set[str] = set()
+
+    for distrito in distritos:
+        distrito_key = _normalize_distrito(distrito)
+        if distrito_key and distrito_key not in vistos:
+            vistos.add(distrito_key)
+            distritos_normalizados.append(distrito_key)
+
+    if not distritos_normalizados:
+        return {}
+
+    placeholders: list[str] = []
+    parameters: list[dict[str, Any]] = []
+
+    for idx, distrito in enumerate(distritos_normalizados):
+        param_name = f"distrito_{idx}"
+        placeholders.append(f":{param_name}")
+        parameters.append(
+            {
+                "name": param_name,
+                "value": distrito,
+                "type": "STRING",
+            }
+        )
+
+    query = f"""
+        WITH ranked AS (
+            SELECT
+                UPPER(TRIM(DISTRITO)) AS distrito_key,
+                CASE
+                    WHEN lat_ini IS NOT NULL AND lon_ini IS NOT NULL THEN lat_ini
+                    WHEN lat_fin IS NOT NULL AND lon_fin IS NOT NULL THEN lat_fin
+                    ELSE NULL
+                END AS lat,
+                CASE
+                    WHEN lat_ini IS NOT NULL AND lon_ini IS NOT NULL THEN lon_ini
+                    WHEN lat_fin IS NOT NULL AND lon_fin IS NOT NULL THEN lon_fin
+                    ELSE NULL
+                END AS lng,
+                ROW_NUMBER() OVER (
+                    PARTITION BY UPPER(TRIM(DISTRITO))
+                    ORDER BY
+                        CASE
+                            WHEN lat_ini IS NOT NULL AND lon_ini IS NOT NULL THEN 1
+                            WHEN lat_fin IS NOT NULL AND lon_fin IS NOT NULL THEN 2
+                            ELSE 3
+                        END
+                ) AS rn
+            FROM {catalog}.bronze.region_distrito_pk
+            WHERE UPPER(TRIM(DISTRITO)) IN ({", ".join(placeholders)})
+        )
+        SELECT
+            distrito_key,
+            lat,
+            lng
+        FROM ranked
+        WHERE rn = 1
+    """
+
+    columns, rows = _execute_statement(query, parameters=parameters)
+    result = _rows_to_dicts(columns, rows)
+    coords_by_distrito: dict[str, dict[str, Any]] = {}
+
+    for row in result:
+        distrito_key = _normalize_distrito(row.get("distrito_key"))
+        if not distrito_key:
+            continue
+
+        coords_by_distrito[distrito_key] = {
+            "lat": row.get("lat"),
+            "lng": row.get("lng"),
+        }
+
+    return coords_by_distrito
+
+def fetch_vs_distritos(
+    fecha_inicio: str,
+    fecha_fin: str,
+    mail_jefe_maquinista: str,
+) -> list[dict[str, Any]]:
+    """Llama a vs_distritos(fecha_inicio, fecha_fin, mail_jefe_maquinista).
+
+    Retorna lista de dicts con:
+    region, distrito, promedio_score, riesgo, alertas, lat, lng.
+    """
+    catalog = os.getenv("CATALOG", "").strip()
+    query = (
+        "SELECT * FROM " + catalog + ".gold.vs_distritos("
+        ":fecha_inicio, :fecha_fin, :mail_jefe_maquinista)"
+    )
+    parameters = [
+        {"name": "fecha_inicio", "value": fecha_inicio, "type": "TIMESTAMP"},
+        {"name": "fecha_fin", "value": fecha_fin, "type": "TIMESTAMP"},
+        {
+            "name": "mail_jefe_maquinista",
+            "value": mail_jefe_maquinista,
+            "type": "STRING",
+        },
+    ]
+
+    columns, rows = _execute_statement(query, parameters=parameters)
+    result = _rows_to_dicts(columns, rows)
+
+    if not result:
+        return result
+
+    distritos = [row.get("distrito") for row in result]
+    coords_by_distrito = _fetch_distritos_coords(distritos)
+
+    for row in result:
+        distrito_key = _normalize_distrito(row.get("distrito"))
+        coords = coords_by_distrito.get(distrito_key)
+
+        # Fallback para obtener desde distritos.py
+        if not coords:
+            print(f"Tratando de buscar {distrito_key}")
+            coords = DISTRITOS.get(distrito_key)
+
+        row["lat"] = coords.get("lat") if coords else None
+        row["lng"] = coords.get("lng") if coords else None
+
+    return result
+# ------------------------------- / Obtener distritos ------------------------------------ #
+
+def fetch_vs_gestion(
+    fecha_inicio: str,
+    fecha_fin: str,
+    email_jefe: str,
+) -> list[dict[str, Any]]:
+    """Llama a vs_gestion(p_fecha_inicio, p_fecha_fin, p_email_jefe).
+
+    Retorna lista de dicts con: id_maquinista, nombre_maquinista,
+    Score_Promedio, Distrito, Viajes, Certificados.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+    query = (
+        "SELECT * FROM " + catalog + ".gold.vs_gestion("
+        ":p_fecha_inicio, :p_fecha_fin, :p_email_jefe)"
+    )
+    parameters = [
+        {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
+        {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
+        {"name": "p_email_jefe", "value": email_jefe, "type": "STRING"},
+    ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
+
+
+def fetch_vs_hist_cert(
+    fecha_inicio: str,
+    fecha_fin: str,
+    id_maquinista: str,
+) -> list[dict[str, Any]]:
+    """Llama a vs_hist_cert(fecha_inicio, fecha_fin, p_id_maquinista).
+
+    Retorna lista de dicts con: id_viaje, FechaGeneracion, calificacion_global, distrito.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+    query = (
+        "SELECT * FROM " + catalog + ".gold.vs_hist_cert("
+        ":fecha_inicio, :fecha_fin, :p_id_maquinista)"
+    )
+    parameters = [
+        {"name": "fecha_inicio", "value": fecha_inicio, "type": "DATE"},
+        {"name": "fecha_fin", "value": fecha_fin, "type": "DATE"},
+        {"name": "p_id_maquinista", "value": id_maquinista, "type": "STRING"},
+    ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
+
+
+def fetch_vs_indice(
+    fecha_inicio: str,
+    fecha_fin: str,
+    mail_jefe_maquinista: str,
+) -> list[dict[str, Any]]:
+    """Llama a vs_indice(fecha_inicio, fecha_fin, mail_jefe_maquinista).
+
+    Retorna lista de dicts con: VM_Certificados, VM_Reprobados, VM_Total,
+    V_Certificados, V_Reprobados, V_Totales.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+    query = (
+        "SELECT * FROM " + catalog + ".gold.vs_indice("
+        ":fecha_inicio, :fecha_fin, :mail_jefe_maquinista)"
+    )
+    parameters = [
+        {"name": "fecha_inicio", "value": fecha_inicio, "type": "TIMESTAMP"},
+        {"name": "fecha_fin", "value": fecha_fin, "type": "TIMESTAMP"},
+        {"name": "mail_jefe_maquinista", "value": mail_jefe_maquinista, "type": "STRING"},
+    ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
+
+
+def fetch_vs_reconocimiento(
+    fecha_inicio: str,
+    fecha_fin: str,
+    email_jefe: str,
+) -> list[dict[str, Any]]:
+    """Llama a vs_reconocimiento(p_fecha_inicio, p_fecha_fin, p_email_jefe).
+
+    Retorna lista de dicts con: posicion, id_maquinista, nombre_maquinista,
+    Score_Promedio, region.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+    query = (
+        "SELECT * FROM " + catalog + ".gold.vs_reconocimiento("
+        ":p_fecha_inicio, :p_fecha_fin, :p_email_jefe)"
+    )
+    parameters = [
+        {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
+        {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
+        {"name": "p_email_jefe", "value": email_jefe, "type": "STRING"},
+    ]
+    columns, rows = _execute_statement(query, parameters=parameters)
+    return _rows_to_dicts(columns, rows)
+
+
+def fetch_vs_score_mensual(
+    id_maquinista: str,
+) -> list[dict[str, Any]]:
+    """Llama a vs_score_mensual(p_id_maquinista).
+
+    Retorna lista de dicts con: Mes, Score.
+    """
+    catalog = os.getenv("CATALOG", '').strip()
+    query = (
+        "SELECT * FROM " + catalog + ".gold.vs_score_mensual("
+        ":p_id_maquinista)"
+    )
+    parameters = [
+        {"name": "p_id_maquinista", "value": id_maquinista, "type": "STRING"},
+    ]
     columns, rows = _execute_statement(query, parameters=parameters)
     return _rows_to_dicts(columns, rows)

@@ -1,6 +1,7 @@
 from django.urls import path
 from .views import (
     ChatView,
+    ResumenView,
     SessionView,
     HealthView,
     SSOConfigView,
@@ -13,6 +14,7 @@ from .views import (
 
 urlpatterns = [
     path("chat/", ChatView.as_view(), name="chat"),
+    path("resumen/", ResumenView.as_view(), name="resumen"),
     path("session/", SessionView.as_view(), name="session"),
     path("health/", HealthView.as_view(), name="health"),
     path("sso/config/", SSOConfigView.as_view(), name="sso_config"),
