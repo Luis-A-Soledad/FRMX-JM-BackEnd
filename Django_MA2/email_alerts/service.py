@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from functools import lru_cache
 from typing import Any
+from api.distritos import DISTRITOS
 
 import requests
 
@@ -1130,6 +1131,104 @@ def fetch_vs_desempeno_region(
     return _rows_to_dicts(columns, rows)
 
 
+
+# ------------------------------- Obtener distritos ------------------------------------ #
+def _normalize_distrito(value: Any) -> str:
+    """Normaliza un nombre de distrito para comparaciones case-insensitive."""
+    if value is None:
+        return ""
+    return str(value).strip().upper()
+
+
+def _fetch_distritos_coords(
+    distritos: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Obtiene lat/lng por distrito desde bronze.region_distrito_pk.
+
+    Reglas:
+    - Si existe un registro con lat_ini y lon_ini, se usa ese par.
+    - Si no existe, pero hay un registro con lat_fin y lon_fin, se usa ese par.
+    - Si no hay coordenadas válidas, el distrito no aparecerá en el resultado.
+    - El match ignora mayúsculas/minúsculas y espacios externos.
+    """
+    catalog = os.getenv("CATALOG", "").strip()
+
+    distritos_normalizados: list[str] = []
+    vistos: set[str] = set()
+
+    for distrito in distritos:
+        distrito_key = _normalize_distrito(distrito)
+        if distrito_key and distrito_key not in vistos:
+            vistos.add(distrito_key)
+            distritos_normalizados.append(distrito_key)
+
+    if not distritos_normalizados:
+        return {}
+
+    placeholders: list[str] = []
+    parameters: list[dict[str, Any]] = []
+
+    for idx, distrito in enumerate(distritos_normalizados):
+        param_name = f"distrito_{idx}"
+        placeholders.append(f":{param_name}")
+        parameters.append(
+            {
+                "name": param_name,
+                "value": distrito,
+                "type": "STRING",
+            }
+        )
+
+    query = f"""
+        WITH ranked AS (
+            SELECT
+                UPPER(TRIM(DISTRITO)) AS distrito_key,
+                CASE
+                    WHEN lat_ini IS NOT NULL AND lon_ini IS NOT NULL THEN lat_ini
+                    WHEN lat_fin IS NOT NULL AND lon_fin IS NOT NULL THEN lat_fin
+                    ELSE NULL
+                END AS lat,
+                CASE
+                    WHEN lat_ini IS NOT NULL AND lon_ini IS NOT NULL THEN lon_ini
+                    WHEN lat_fin IS NOT NULL AND lon_fin IS NOT NULL THEN lon_fin
+                    ELSE NULL
+                END AS lng,
+                ROW_NUMBER() OVER (
+                    PARTITION BY UPPER(TRIM(DISTRITO))
+                    ORDER BY
+                        CASE
+                            WHEN lat_ini IS NOT NULL AND lon_ini IS NOT NULL THEN 1
+                            WHEN lat_fin IS NOT NULL AND lon_fin IS NOT NULL THEN 2
+                            ELSE 3
+                        END
+                ) AS rn
+            FROM {catalog}.bronze.region_distrito_pk
+            WHERE UPPER(TRIM(DISTRITO)) IN ({", ".join(placeholders)})
+        )
+        SELECT
+            distrito_key,
+            lat,
+            lng
+        FROM ranked
+        WHERE rn = 1
+    """
+
+    columns, rows = _execute_statement(query, parameters=parameters)
+    result = _rows_to_dicts(columns, rows)
+    coords_by_distrito: dict[str, dict[str, Any]] = {}
+
+    for row in result:
+        distrito_key = _normalize_distrito(row.get("distrito_key"))
+        if not distrito_key:
+            continue
+
+        coords_by_distrito[distrito_key] = {
+            "lat": row.get("lat"),
+            "lng": row.get("lng"),
+        }
+
+    return coords_by_distrito
+
 def fetch_vs_distritos(
     fecha_inicio: str,
     fecha_fin: str,
@@ -1137,9 +1236,10 @@ def fetch_vs_distritos(
 ) -> list[dict[str, Any]]:
     """Llama a vs_distritos(fecha_inicio, fecha_fin, mail_jefe_maquinista).
 
-    Retorna lista de dicts con: region, distrito, promedio_score, riesgo, alertas.
+    Retorna lista de dicts con:
+    region, distrito, promedio_score, riesgo, alertas, lat, lng.
     """
-    catalog = os.getenv("CATALOG", '').strip()
+    catalog = os.getenv("CATALOG", "").strip()
     query = (
         "SELECT * FROM " + catalog + ".gold.vs_distritos("
         ":fecha_inicio, :fecha_fin, :mail_jefe_maquinista)"
@@ -1147,11 +1247,36 @@ def fetch_vs_distritos(
     parameters = [
         {"name": "fecha_inicio", "value": fecha_inicio, "type": "TIMESTAMP"},
         {"name": "fecha_fin", "value": fecha_fin, "type": "TIMESTAMP"},
-        {"name": "mail_jefe_maquinista", "value": mail_jefe_maquinista, "type": "STRING"},
+        {
+            "name": "mail_jefe_maquinista",
+            "value": mail_jefe_maquinista,
+            "type": "STRING",
+        },
     ]
-    columns, rows = _execute_statement(query, parameters=parameters)
-    return _rows_to_dicts(columns, rows)
 
+    columns, rows = _execute_statement(query, parameters=parameters)
+    result = _rows_to_dicts(columns, rows)
+
+    if not result:
+        return result
+
+    distritos = [row.get("distrito") for row in result]
+    coords_by_distrito = _fetch_distritos_coords(distritos)
+
+    for row in result:
+        distrito_key = _normalize_distrito(row.get("distrito"))
+        coords = coords_by_distrito.get(distrito_key)
+
+        # Fallback para obtener desde distritos.py
+        if not coords:
+            print(f"Tratando de buscar {distrito_key}")
+            coords = DISTRITOS.get(distrito_key)
+
+        row["lat"] = coords.get("lat") if coords else None
+        row["lng"] = coords.get("lng") if coords else None
+
+    return result
+# ------------------------------- / Obtener distritos ------------------------------------ #
 
 def fetch_vs_gestion(
     fecha_inicio: str,

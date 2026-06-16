@@ -10,7 +10,6 @@ from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from api.distritos import DISTRITOS
 from api.authentication.stateless_jwt import StatelessJWTAuthentication
 from api.authentication.entra import EntraBearerAuthentication
 from api.permissions import IsAllowedSSORole
@@ -130,12 +129,6 @@ class DistritosView(APIView):
 
         try:
             rows = fetch_vs_distritos(fecha_inicio, fecha_fin, email_jefe)
-            for row in rows:
-                distrito_actual = row.get("distrito")
-                distrito_info = DISTRITOS.get(distrito_actual, {})
-                row["lat"] = distrito_info.get("lat")
-                row["lng"] = distrito_info.get("lng")
-
             return Response({"data": rows}, status=status.HTTP_200_OK)
         except RuntimeError:
             logger.exception("Error consultando Databricks para distritos")
