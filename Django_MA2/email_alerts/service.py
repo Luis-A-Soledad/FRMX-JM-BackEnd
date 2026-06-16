@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from functools import lru_cache
 from typing import Any
@@ -988,6 +988,10 @@ def fetch_comparativa_maquinistas(
     Total_Alertas, Distrito, Fecha.
     """
     catalog = os.getenv("CATALOG", '').strip()
+
+   # 1. Construir y ejecutar la consulta original
+    # Nota: Usamos las fechas originales para la consulta SQL para asegurarnos
+    # de que el motor devuelve todos los datos posibles en ese rango amplio.
     if id_maquinista_opcional is not None:
         query = (
             "SELECT * FROM " + catalog + ".gold.fn_comparativa_maquinistas("
@@ -1011,8 +1015,92 @@ def fetch_comparativa_maquinistas(
             {"name": "p_fecha_inicio", "value": fecha_inicio, "type": "DATE"},
             {"name": "p_fecha_fin", "value": fecha_fin, "type": "DATE"},
         ]
+
     columns, rows = _execute_statement(query, parameters=parameters)
-    return _rows_to_dicts(columns, rows)
+    data = _rows_to_dicts(columns, rows)
+
+    # 2. Determinar el rango dinámico basado en los datos devueltos
+    try:
+        date_format = "%Y-%m-%d"
+        
+        # Extraer todas las fechas únicas presentes en la respuesta de la BD
+        dates_in_db = set()
+        for row in data:
+            date_str = row.get("Fecha")
+            if date_str:
+                dates_in_db.add(date_str)
+        
+        # Si no hay datos, retornamos la lista vacía o la original
+        if not dates_in_db:
+            return data
+
+        # Calcular la fecha mínima y máxima encontrada
+        min_date_str = min(dates_in_db)
+        max_date_str = max(dates_in_db)
+        
+        start_date_obj = datetime.strptime(min_date_str, date_format).date()
+        end_date_obj = datetime.strptime(max_date_str, date_format).date()
+
+        # Generar la lista de todas las fechas consecutivas en este rango
+        all_dates = []
+        current_date = start_date_obj
+        while current_date <= end_date_obj:
+            all_dates.append(current_date.strftime(date_format))
+            current_date += timedelta(days=1)
+
+    except ValueError:
+        # Si hay problemas de formato, retornamos datos sin rellenar
+        return data
+
+    if not all_dates:
+        return data
+
+    # 3. Agrupar los datos existentes por "Etiqueta" (identificador de persona)
+    grouped_data = {}
+    for row in data:
+        key = row.get("Etiqueta")
+        if key not in grouped_data:
+            grouped_data[key] = []
+        grouped_data[key].append(row)
+
+    # 4. Crear la lista final rellenada
+    final_data = []
+
+    for etiqueta, records in grouped_data.items():
+        # Ordenar registros por fecha para facilitar la búsqueda (opcional pero eficiente)
+        records.sort(key=lambda x: x.get("Fecha", ""))
+
+        # Iterar sobre TODAS las fechas del rango dinámico (desde min_date hasta max_date)
+        for date_str in all_dates:
+            # Buscar si existe un registro para esta fecha específico de esta persona
+            existing_record = None
+            for rec in records:
+                if rec.get("Fecha") == date_str:
+                    existing_record = rec
+                    break
+            
+            if existing_record:
+                # Si existe, agregarlo tal cual
+                final_data.append(existing_record)
+            else:
+                # Si NO existe, crear un registro vacío para esta persona
+                # Usamos el primer registro disponible de esta persona para copiar metadatos
+                base_record = records[0] 
+                
+                new_record = {
+                    "Etiqueta": base_record.get("Etiqueta"),
+                    "nombre_maquinista": base_record.get("nombre_maquinista"),
+                    "Score": None,  # Valor nulo como solicitaste
+                    "Total_Alertas": None,  # Valor nulo para consistencia
+                    "Distrito": base_record.get("Distrito"),
+                    "Fecha": date_str
+                }
+                final_data.append(new_record)
+
+    # 5. Ordenar el resultado final por Fecha y luego por Etiqueta para una presentación ordenada
+    final_data.sort(key=lambda x: (x.get("Fecha", ""), x.get("Etiqueta", "")))
+
+    return final_data
 
 
 # ---------------------------------------------------------------------------

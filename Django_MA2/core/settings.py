@@ -192,8 +192,8 @@ _auth_classes.append("api.authentication.stateless_jwt.StatelessJWTAuthenticatio
 from datetime import timedelta
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=4),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "USER_ID_FIELD": "email",
     "USER_ID_CLAIM": "email",
 
