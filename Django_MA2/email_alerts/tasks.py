@@ -25,7 +25,7 @@ from typing import Any
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
-from .helpers import build_alerta_response, normalize_columns
+from .helpers import build_alerta_response, is_prioritaria, normalize_columns
 from .group_names import safe_train_group_name
 from .service import (
     fetch_alertas_count,
@@ -88,11 +88,10 @@ def _row_to_operational_contract(row: dict[str, Any]) -> dict[str, Any]:
         ),
         "detail_mile_post_at_end": _safe_str(
             row.get("detail_mile_post_at_end")
-            or row.get("detail_mile_post_current")
-            or row.get("detail_mile_post_at_start")
         ),
         "nombre_alerta": nombre_alerta,
         "tipo_alerta": tipo_alerta,
+        "prioritaria": is_prioritaria(tipo_alerta),
         "alert_count": 1,
     }
 
