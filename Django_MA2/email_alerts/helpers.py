@@ -214,6 +214,19 @@ def _resolve_type(tipo_alerta: Any) -> str | None:
     return _TIPO_ALERTA_TO_TYPE.get(str(tipo_alerta).strip(), str(tipo_alerta))
 
 
+# Tipos de alerta considerados prioritarios para el contrato operacional.
+PRIORITARIA_TIPOS_ALERTA: frozenset[str] = frozenset(
+    {"Alerta_01", "Alerta_02", "Alerta_03", "Alerta_06"}
+)
+
+
+def is_prioritaria(tipo_alerta: Any) -> bool:
+    """Indica si el tipo de alerta pertenece al conjunto prioritario."""
+    if tipo_alerta is None:
+        return False
+    return str(tipo_alerta).strip() in PRIORITARIA_TIPOS_ALERTA
+
+
 def build_alerta_response(
     normalized: dict[str, Any],
     timestamp_col: str | None = None,
@@ -248,6 +261,7 @@ def build_alerta_response(
         "id": id_val,
         "titulo": titulo,
         "type": _resolve_type(normalized.get("tipoAlerta") or normalized.get("tipo_alerta")),
+        "prioritaria": is_prioritaria(normalized.get("tipoAlerta") or normalized.get("tipo_alerta")),
         "nombre_alerta": normalized.get("nombre_alerta"),
         "AFT": normalized.get("AFT"),
         "train_id": normalized.get("train_id"),

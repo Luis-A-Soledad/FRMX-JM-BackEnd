@@ -27,6 +27,8 @@ from config import (
     EMAIL_ALERTS_REQUEST_TIMEOUT_SECS,
 )
 
+from .helpers import is_prioritaria
+
 DEFAULT_DATABRICKS_HOST = EMAIL_ALERTS_DEFAULT_DATABRICKS_HOST
 DEFAULT_TABLE_NAME = EMAIL_ALERTS_DEFAULT_TABLE_NAME
 REQUEST_TIMEOUT_SECS = EMAIL_ALERTS_REQUEST_TIMEOUT_SECS
@@ -418,7 +420,6 @@ def fetch_email_alerts_operational_rows(
     )
     mile_start_col = _first_existing(available, "detail_mile_post_at_start", "detail_mile_post_current")
     mile_end_col = _first_existing(available, "detail_mile_post_at_end")
-    mile_end_fallback = _first_existing(available, "detail_mile_post_current", "detail_mile_post_at_start")
 
     loc_start_expr = (
         f"FIRST_VALUE({loc_start_col}) OVER (PARTITION BY train_id ORDER BY {ts_col} DESC) AS region"
@@ -445,18 +446,9 @@ def fetch_email_alerts_operational_rows(
         else "CAST(NULL AS STRING) AS detail_mile_post_at_start"
     )
     mile_end_expr = (
-        f"COALESCE(NULLIF(FIRST_VALUE({mile_end_col}) OVER (PARTITION BY train_id ORDER BY {ts_col} DESC), ''), "
-        f"FIRST_VALUE({mile_end_fallback}) OVER (PARTITION BY train_id ORDER BY {ts_col} DESC)) AS detail_mile_post_at_end"
-        if mile_end_col and mile_end_fallback
-        else (
-            f"FIRST_VALUE({mile_end_col}) OVER (PARTITION BY train_id ORDER BY {ts_col} DESC) AS detail_mile_post_at_end"
-            if mile_end_col
-            else (
-                f"FIRST_VALUE({mile_end_fallback}) OVER (PARTITION BY train_id ORDER BY {ts_col} DESC) AS detail_mile_post_at_end"
-                if mile_end_fallback
-                else "CAST(NULL AS STRING) AS detail_mile_post_at_end"
-            )
-        )
+        f"FIRST_VALUE({mile_end_col}) OVER (PARTITION BY train_id ORDER BY {ts_col} DESC) AS detail_mile_post_at_end"
+        if mile_end_col
+        else "CAST(NULL AS STRING) AS detail_mile_post_at_end"
     )
     crew_expr = _select_expr(
         "maquinista",
@@ -533,7 +525,10 @@ def fetch_email_alerts_operational_rows(
         query = f"{query} LIMIT {int(limit)}"
 
     columns, rows = _execute_statement(query, parameters=params or None)
-    return _rows_to_dicts(columns, rows)
+    result = _rows_to_dicts(columns, rows)
+    for row in result:
+        row["prioritaria"] = is_prioritaria(row.get("tipo_alerta"))
+    return result
 
 
 def get_alertas_table_name() -> str:
@@ -610,11 +605,10 @@ def fetch_alertas_page(
         "detail_mile_post_at_start",
         "detail_mile_post_current",
     )
-    mile_end_expr = _select_expr_end(
+    mile_end_expr = _select_expr(
         "detail_mile_post_at_end",
         available,
-        ("detail_mile_post_at_end",),
-        ("detail_mile_post_current", "detail_mile_post_at_start"),
+        "detail_mile_post_at_end",
     )
 
     crew_expr = _select_expr(
