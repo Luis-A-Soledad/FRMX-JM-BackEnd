@@ -6,6 +6,7 @@ import logging
 import math
 import os
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -337,7 +338,7 @@ class DebugBroadcastView(APIView):
             alertas.append({
                 "train_id": train_id,
                 "asset_id": f"LOCO-{1000+i}",
-                "last_event": datetime.now(timezone.utc).isoformat(),
+                "last_event": datetime.now(ZoneInfo("America/Mexico_City")).isoformat(),
                 "id_alerta": f"FAKE-{i+1}",
                 "titulo": "Exceso de velocidad (TEST)",
                 "descripcion": f"Alerta de prueba #{i+1}",

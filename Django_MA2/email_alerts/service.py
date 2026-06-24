@@ -472,11 +472,15 @@ def fetch_email_alerts_operational_rows(
     conditions: list[str] = []
     params: list[dict[str, str]] = []
     if only_today:
-        conditions.append(f"CAST({ts_col} AS DATE) = CURRENT_DATE()")
+        conditions.append(
+            f"CAST({ts_col} AS DATE) = CAST(from_utc_timestamp(current_timestamp(), 'America/Mexico_City') AS DATE)"
+        )
     elif last_hours is not None:
         if last_hours < 1:
             raise ValueError("last_hours debe ser >= 1.")
-        conditions.append(f"{ts_col} >= CURRENT_TIMESTAMP() - INTERVAL {int(last_hours)} HOURS")
+        conditions.append(
+            f"{ts_col} >= dateadd(hour, -{int(last_hours)}, from_utc_timestamp(current_timestamp(), 'America/Mexico_City'))"
+        )
     if train_id:
         conditions.append("train_id = :train_id_param")
         params.append({"name": "train_id_param", "value": train_id, "type": "STRING"})
@@ -569,7 +573,9 @@ def fetch_alertas_page(
     if last_hours is not None:
         if last_hours < 1:
             raise ValueError("last_hours debe ser >= 1.")
-        conditions.append(f"{ts_col} >= CURRENT_TIMESTAMP() - INTERVAL {int(last_hours)} HOURS")
+        conditions.append(
+            f"{ts_col} >= dateadd(hour, -{int(last_hours)}, from_utc_timestamp(current_timestamp(), 'America/Mexico_City'))"
+        )
     tipo_alerta_col = _first_existing(available, "tipo_alerta", "alert_type_detected")
     tipos_alerta_normalized = _normalize_tipo_alerta_filters(tipos_alerta)
     if tipos_alerta_normalized:
@@ -675,7 +681,9 @@ def fetch_alertas_count(
     if last_hours is not None:
         if last_hours < 1:
             raise ValueError("last_hours debe ser >= 1.")
-        conditions.append(f"{ts_col} >= CURRENT_TIMESTAMP() - INTERVAL {int(last_hours)} HOURS")
+        conditions.append(
+            f"{ts_col} >= dateadd(hour, -{int(last_hours)}, from_utc_timestamp(current_timestamp(), 'America/Mexico_City'))"
+        )
     available = _get_table_columns(table_name)
     tipo_alerta_col = _first_existing(available, "tipo_alerta", "alert_type_detected")
     tipos_alerta_normalized = _normalize_tipo_alerta_filters(tipos_alerta)
