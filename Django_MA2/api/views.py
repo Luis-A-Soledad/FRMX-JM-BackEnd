@@ -926,7 +926,7 @@ class SSOCallbackView(APIView):
         # en producción valida la firma correctamente (JWKS)
         decoded = jwt.decode(ms_token, options={"verify_signature": False})
 
-        email = decoded.get("email")
+        email = decoded.get("unique_name")
         name = decoded.get("name")
 
         # -----------------------------
