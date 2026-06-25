@@ -269,9 +269,9 @@ class AlertasPorLocoPrincipalView(APIView):
                     "limit debe ser >= 1.",
                 )
 
-        only_today_raw = request.query_params.get("only_today", "false").lower()
+        only_today_raw = request.query_params.get("only_today", "true").lower()
         only_today = only_today_raw in ("true", "1", "yes")
-        only_last_12_hours_raw = request.query_params.get("only_last_12_hours", "true").lower()
+        only_last_12_hours_raw = request.query_params.get("only_last_12_hours", "false").lower()
         only_last_12_hours = only_last_12_hours_raw in ("true", "1", "yes")
         tipos_alerta = self._get_tipos_alerta(request)
 
