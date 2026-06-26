@@ -446,7 +446,7 @@ class FetchEmailAlertsOperationalRowsTests(TestCase):
         fetch_email_alerts_operational_rows(last_hours=12)
 
         query = mock_exec.call_args.args[0]
-        self.assertIn("CURRENT_TIMESTAMP() - INTERVAL 12 HOURS", query)
+        self.assertIn("dateadd(hour, -12, from_utc_timestamp(current_timestamp(), 'America/Mexico_City'))", query)
         self.assertNotIn("CAST(event_time_utc AS DATE) = CURRENT_DATE()", query)
 
 

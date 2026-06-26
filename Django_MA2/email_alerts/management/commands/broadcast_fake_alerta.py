@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.core.management.base import BaseCommand
+from zoneinfo import ZoneInfo
 
 
 class Command(BaseCommand):
@@ -52,7 +53,7 @@ class Command(BaseCommand):
                 "pkInicio": "100.5",
                 "pkFin": "102.3",
                 "prioridad": "Alta",
-                "horaActualizacion": datetime.now(timezone.utc).isoformat(),
+                "horaActualizacion": datetime.now(ZoneInfo("America/Mexico_City")).isoformat(),
             })
 
         payload = {

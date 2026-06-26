@@ -6,6 +6,7 @@ import logging
 import math
 import os
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -268,9 +269,9 @@ class AlertasPorLocoPrincipalView(APIView):
                     "limit debe ser >= 1.",
                 )
 
-        only_today_raw = request.query_params.get("only_today", "false").lower()
+        only_today_raw = request.query_params.get("only_today", "true").lower()
         only_today = only_today_raw in ("true", "1", "yes")
-        only_last_12_hours_raw = request.query_params.get("only_last_12_hours", "true").lower()
+        only_last_12_hours_raw = request.query_params.get("only_last_12_hours", "false").lower()
         only_last_12_hours = only_last_12_hours_raw in ("true", "1", "yes")
         tipos_alerta = self._get_tipos_alerta(request)
 
@@ -337,7 +338,7 @@ class DebugBroadcastView(APIView):
             alertas.append({
                 "train_id": train_id,
                 "asset_id": f"LOCO-{1000+i}",
-                "last_event": datetime.now(timezone.utc).isoformat(),
+                "last_event": datetime.now(ZoneInfo("America/Mexico_City")).isoformat(),
                 "id_alerta": f"FAKE-{i+1}",
                 "titulo": "Exceso de velocidad (TEST)",
                 "descripcion": f"Alerta de prueba #{i+1}",
